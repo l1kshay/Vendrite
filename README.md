@@ -4,9 +4,10 @@ E-commerce sales & customer analytics platform — an ETL pipeline, RFM customer
 segmentation, and short-term demand forecasting, surfaced through an interactive
 Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 
-> **Build status:** Phases 1–3 complete (Data Foundation + Analytics Layer +
-> Streamlit/Plotly dashboard, all DB-verified). Phases 4–5 (automation,
-> security/testing/deploy) are scaffolded and in progress.
+> **Build status:** Phases 1–4 complete (Data Foundation + Analytics Layer +
+> Streamlit/Plotly dashboard + scheduled GitHub Actions pipeline & templated
+> run report, all verified). Phase 5 (auth, pytest suite, deployment) is
+> scaffolded and in progress.
 
 ---
 
@@ -62,10 +63,12 @@ environment variables.
 | `sql/queries/` | verification / analysis SQL |
 | `analytics/` | `segmentation.py`, `forecasting.py` (Phase 2) |
 | `dashboard/` | `app.py` — Streamlit dashboard (Phase 3) |
-| `reports/` | generated summary report artifacts (Phase 4) |
+| `reporting/` | `generate_report.py` + Jinja2 `templates/` — run-summary report (Phase 4) |
+| `reports/` | generated summary report artifacts, gitignored (Phase 4) |
+| `run_pipeline.py` | one-command orchestrator: ETL → analytics → report (Phase 4) |
 | `config/settings.py` | central configuration, env-driven |
 | `tests/` | pytest suite (Phase 5) |
-| `.github/workflows/` | scheduled pipeline (Phase 4) |
+| `.github/workflows/pipeline.yml` | scheduled pipeline (Phase 4) |
 
 ---
 
@@ -215,13 +218,63 @@ single entry point so it can be wrapped without changing the body.
 
 ---
 
-## Scheduled job (Phase 4 — in progress)
+## Automation & reporting
 
-A GitHub Actions workflow (`.github/workflows/`) will run the full chain on a
-cron schedule: **ETL → analytics (segmentation + forecasting) → summary report**.
-It sources DB credentials from GitHub Actions Secrets, writes a `STARTED` then
-`SUCCESS`/`FAILED` row to `analytics.etl_run_log` for every run, fails the
-workflow loudly on any error, and uploads the generated `reports/` artifact.
+### Full pipeline in one command
+
+```bash
+python run_pipeline.py --generate      # ETL → segmentation → forecast → report
+python run_pipeline.py --skip-report   # stop after analytics
+```
+
+`run_pipeline.py` runs the four stages in order. Every stage writes
+`STARTED` then `SUCCESS`/`FAILED` rows to `analytics.etl_run_log`; any stage
+failure propagates, the process exits non-zero, and the FAILED row is already
+in the DB. The report stage is read-only.
+
+### Run-summary report
+
+`reporting/generate_report.py` reads the `analytics` schema and renders two
+Jinja2 templates (`reporting/templates/summary.{md,html}.j2`) into `reports/`:
+
+- `summary_<UTC-timestamp>.md` and `.html` — the immutable run artifact
+- `latest.md` / `latest.html` — always the most recent
+
+Contents: warehouse row counts, all-time + last-30d-vs-prior-30d sales KPIs,
+top categories/products, the latest customer-segment cohort with average RFM,
+the current forecast, extract/transform quarantine counts, and the recent
+`etl_run_log` tail. `reports/` output is gitignored (regenerated every run).
+
+### Scheduled GitHub Actions workflow
+
+`.github/workflows/pipeline.yml` runs daily at **02:00 UTC** (and on demand via
+*Run workflow*):
+
+1. spins up an ephemeral `postgres:16` service,
+2. installs pinned deps, applies `sql/schema/01–04`, sets the two role
+   passwords,
+3. runs `python run_pipeline.py --generate`,
+4. **uploads `reports/` as a build artifact** (`vendrite-report-<run#>`,
+   30-day retention) — on success *and* failure,
+5. on failure, dumps the `etl_run_log` tail into the job log.
+
+Any error makes the job go red (`ON_ERROR_STOP=1` for schema steps; non-zero
+exit from `run_pipeline.py`).
+
+**Repository secrets** (Settings → Secrets and variables → Actions). All are
+optional for the CI/ephemeral-DB path (safe fallbacks are used) and
+**required** when pointing at a real database:
+
+| Secret | Purpose |
+| --- | --- |
+| `VENDRITE_SUPERUSER_PASSWORD` | Postgres superuser, for schema + role provisioning |
+| `VENDRITE_ETL_DB_PASSWORD` | password set for / used by the `vendrite_etl` role |
+| `VENDRITE_DASHBOARD_DB_PASSWORD` | password set for / used by the `vendrite_dashboard` role |
+
+To target a managed database instead of the CI service, delete the `services:`
+block in the workflow and add `VENDRITE_DB_HOST` / `VENDRITE_DB_PORT` /
+`VENDRITE_DB_NAME` (as secrets or `env:`), then drop `--generate` if you have a
+real upstream source.
 
 ---
 

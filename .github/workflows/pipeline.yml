@@ -1,0 +1,108 @@
+name: Vendrite pipeline
+
+# Scheduled full pipeline: ETL -> segmentation -> forecast -> summary report.
+# Fails loudly (job goes red) on any stage error; every stage also records a
+# FAILED row in analytics.etl_run_log. The rendered report is uploaded as a
+# build artifact after each run.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"        # daily at 02:00 UTC
+  workflow_dispatch: {}          # manual "Run workflow" button
+
+concurrency:
+  group: vendrite-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    # Ephemeral PostgreSQL for CI. To run against a real managed database
+    # instead, delete this `services:` block and set VENDRITE_DB_HOST /
+    # VENDRITE_DB_PORT / VENDRITE_DB_NAME + the credential secrets below.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ secrets.VENDRITE_SUPERUSER_PASSWORD || 'postgres' }}
+          POSTGRES_DB: vendrite
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # app config (config/settings.py reads these)
+      VENDRITE_DB_HOST: localhost
+      VENDRITE_DB_PORT: "5432"
+      VENDRITE_DB_NAME: vendrite
+      VENDRITE_ETL_DB_USER: vendrite_etl
+      VENDRITE_ETL_DB_PASSWORD: ${{ secrets.VENDRITE_ETL_DB_PASSWORD || 'etl_ci_pw' }}
+      VENDRITE_DASHBOARD_DB_USER: vendrite_dashboard
+      VENDRITE_DASHBOARD_DB_PASSWORD: ${{ secrets.VENDRITE_DASHBOARD_DB_PASSWORD || 'dash_ci_pw' }}
+      VENDRITE_MOCK_SEED: "42"
+      # psql client auth for the schema-provisioning steps
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: ${{ secrets.VENDRITE_SUPERUSER_PASSWORD || 'postgres' }}
+      PGDATABASE: vendrite
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -U postgres && exit 0
+            sleep 2
+          done
+          echo "PostgreSQL did not become ready" && exit 1
+
+      - name: Apply database schema
+        run: |
+          psql -v ON_ERROR_STOP=1 -f sql/schema/01_schemas.sql
+          psql -v ON_ERROR_STOP=1 -f sql/schema/02_roles.sql
+          psql -v ON_ERROR_STOP=1 -f sql/schema/03_staging.sql
+          psql -v ON_ERROR_STOP=1 -f sql/schema/04_analytics.sql
+
+      - name: Provision role passwords
+        run: |
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE vendrite_etl WITH PASSWORD '${VENDRITE_ETL_DB_PASSWORD}';"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE vendrite_dashboard WITH PASSWORD '${VENDRITE_DASHBOARD_DB_PASSWORD}';"
+
+      - name: Run pipeline (ETL -> analytics -> report)
+        run: python run_pipeline.py --generate
+
+      - name: Upload run-summary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendrite-report-${{ github.run_number }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Failure diagnostics (etl_run_log tail)
+        if: failure()
+        run: |
+          psql -c "SELECT run_id, run_timestamp, status, records_processed, left(error_message, 200) AS error
+                   FROM analytics.etl_run_log ORDER BY run_id DESC LIMIT 15;" || true

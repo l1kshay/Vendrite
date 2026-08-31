@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vendrite — pipeline run summary</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         margin: 2rem auto; max-width: 900px; padding: 0 1rem; }
+  h1 { margin-bottom: .2rem; }
+  .sub { color: #6b7280; margin-top: 0; }
+  h2 { margin-top: 2rem; border-bottom: 2px solid #e5e7eb; padding-bottom: .25rem; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+  th, td { border: 1px solid #d1d5db; padding: .4rem .6rem; text-align: left; }
+  th { background: #f3f4f6; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .85em; }
+  .SUCCESS { background: #dcfce7; color: #166534; }
+  .FAILED  { background: #fee2e2; color: #991b1b; }
+  .STARTED { background: #e0e7ff; color: #3730a3; }
+  .up { color: #166534; } .down { color: #991b1b; }
+</style>
+</head>
+<body>
+<h1>Vendrite — pipeline run summary</h1>
+<p class="sub">Generated {{ generated_at }}</p>
+
+<h2>Warehouse</h2>
+<table>
+  <tr><th>Staging rows</th><td class="num">{{ db.staging_rows | num }}</td></tr>
+  <tr><th>Fact rows (fact_sales)</th><td class="num">{{ db.fact_rows | num }}</td></tr>
+  <tr><th>Customers</th><td class="num">{{ db.customers | num }}</td></tr>
+  <tr><th>Products</th><td class="num">{{ db.products | num }}</td></tr>
+  <tr><th>Sales date span</th><td>{{ db.first_sale }} &rarr; {{ db.last_sale }}</td></tr>
+</table>
+
+<h2>Sales KPIs (all time)</h2>
+<table>
+  <tr><th>Revenue</th><td class="num">{{ kpi.revenue | money }}</td></tr>
+  <tr><th>Orders</th><td class="num">{{ kpi.orders | num }}</td></tr>
+  <tr><th>Units</th><td class="num">{{ kpi.units | num }}</td></tr>
+  <tr><th>Avg order value</th><td class="num">{{ kpi.aov | money }}</td></tr>
+  <tr><th>Revenue &mdash; last 30d</th><td class="num">{{ kpi.rev_30d | money }}</td></tr>
+  <tr><th>Revenue &mdash; prior 30d</th><td class="num">{{ kpi.rev_prev_30d | money }}</td></tr>
+  <tr><th>30d change</th>
+      <td class="num {% if kpi.rev_change_pct is not none and kpi.rev_change_pct >= 0 %}up{% elif kpi.rev_change_pct is not none %}down{% endif %}">
+      {{ kpi.rev_change_pct | pct }}</td></tr>
+</table>
+
+<h2>Top categories</h2>
+<table>
+  <tr><th>Category</th><th class="num">Revenue</th><th class="num">Units</th></tr>
+  {% for r in top_categories %}
+  <tr><td>{{ r.category }}</td><td class="num">{{ r.revenue | money }}</td><td class="num">{{ r.units | num }}</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Top products</h2>
+<table>
+  <tr><th>Product</th><th>Category</th><th class="num">Revenue</th><th class="num">Units</th></tr>
+  {% for r in top_products %}
+  <tr><td>{{ r.product }}</td><td>{{ r.category }}</td><td class="num">{{ r.revenue | money }}</td><td class="num">{{ r.units | num }}</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Customer segments</h2>
+{% if segments.rows %}
+<p class="sub">Latest cohort: {{ segments.cohort_date }}</p>
+<table>
+  <tr><th>Segment</th><th class="num">Customers</th><th class="num">Avg recency</th><th class="num">Avg frequency</th><th class="num">Avg monetary</th></tr>
+  {% for r in segments.rows %}
+  <tr><td>{{ r.label }}</td><td class="num">{{ r.customers | num }}</td><td class="num">{{ r.avg_recency | num }}</td><td class="num">{{ r.avg_frequency }}</td><td class="num">{{ r.avg_monetary | money }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p><em>No segmentation rows yet.</em></p>
+{% endif %}
+
+<h2>Forecast</h2>
+{% if forecast %}
+<ul>
+  <li>Model version: <code>{{ forecast.model_version }}</code></li>
+  <li>Generated: {{ forecast.generated_date }}</li>
+  <li>Horizon: {{ forecast.n }} days ({{ forecast.first_date }} &rarr; {{ forecast.last_date }})</li>
+  <li>Total predicted revenue: {{ forecast.total | money }}</li>
+  <li>Avg predicted / day: {{ forecast.avg_daily | money }}</li>
+</ul>
+{% else %}
+<p><em>No forecast rows yet.</em></p>
+{% endif %}
+
+<h2>Data quality</h2>
+<table>
+  <tr><th>Stage</th><th class="num">Quarantined rows</th></tr>
+  <tr><td>Extract (malformed)</td><td class="num">{{ quality.extract_quarantined if quality.extract_quarantined is not none else "n/a" }}</td></tr>
+  <tr><td>Transform (invalid)</td><td class="num">{{ quality.transform_quarantined if quality.transform_quarantined is not none else "n/a" }}</td></tr>
+</table>
+
+<h2>Recent pipeline runs</h2>
+<table>
+  <tr><th class="num">run_id</th><th>timestamp</th><th>status</th><th class="num">records</th><th>error</th></tr>
+  {% for r in runs %}
+  <tr>
+    <td class="num">{{ r.run_id }}</td>
+    <td>{{ r.run_timestamp }}</td>
+    <td><span class="pill {{ r.status }}">{{ r.status }}</span></td>
+    <td class="num">{{ r.records_processed if r.records_processed is not none else "" }}</td>
+    <td>{{ (r.error_message or "") | truncate(80) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</body>
+</html>
