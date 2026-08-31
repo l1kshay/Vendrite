@@ -4,10 +4,10 @@ E-commerce sales & customer analytics platform — an ETL pipeline, RFM customer
 segmentation, and short-term demand forecasting, surfaced through an interactive
 Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 
-> **Build status:** Phases 1–4 complete (Data Foundation + Analytics Layer +
-> Streamlit/Plotly dashboard + scheduled GitHub Actions pipeline & templated
-> run report, all verified). Phase 5 (auth, pytest suite, deployment) is
-> scaffolded and in progress.
+> **Build status:** All 5 phases complete — ETL → PostgreSQL star schema,
+> RFM segmentation, linear-regression forecast, Streamlit/Plotly dashboard
+> behind a credential login gate, scheduled GitHub Actions pipeline + templated
+> run report, and a pytest suite. All DB-verified end to end.
 
 ---
 
@@ -67,8 +67,9 @@ environment variables.
 | `reports/` | generated summary report artifacts, gitignored (Phase 4) |
 | `run_pipeline.py` | one-command orchestrator: ETL → analytics → report (Phase 4) |
 | `config/settings.py` | central configuration, env-driven |
-| `tests/` | pytest suite (Phase 5) |
-| `.github/workflows/pipeline.yml` | scheduled pipeline (Phase 4) |
+| `tests/` | pytest suite — `test_clean.py`, `test_segmentation.py`, `test_forecasting.py` |
+| `.github/workflows/pipeline.yml` | scheduled ETL→analytics→report pipeline |
+| `.github/workflows/tests.yml` | run `pytest` on every push / PR |
 
 ---
 
@@ -213,8 +214,23 @@ just renders the materialised results. Contents:
 - **Category drill-down** — pick a category → monthly revenue + top-10 products.
 - **Pipeline status** — the recent `etl_run_log` rows.
 
-The `streamlit-authenticator` login gate is added in Phase 5; `main()` is a
-single entry point so it can be wrapped without changing the body.
+### Login gate
+
+`main()` is guarded by a `streamlit-authenticator` credential login. Credentials
+come **only** from `VENDRITE_AUTH_*` environment variables (see `.env.example`)
+and the password is stored as a **bcrypt hash**, never plaintext. To provision:
+
+```bash
+# 1. a random cookie-signing key
+python -c "import secrets; print(secrets.token_hex(32))"        # -> VENDRITE_AUTH_COOKIE_KEY
+
+# 2. a bcrypt hash of the login password
+python -c "import bcrypt,getpass; print(bcrypt.hashpw(getpass.getpass('pw: ').encode(), bcrypt.gensalt()).decode())"
+#   -> VENDRITE_AUTH_PASSWORD_HASH   (also set VENDRITE_AUTH_USERNAME / _NAME / _EMAIL)
+```
+
+If the auth vars are missing the dashboard shows a configuration error and
+refuses to load any data.
 
 ---
 
@@ -308,22 +324,100 @@ file is produced by this repo; connect it to the same warehouse:
 
 ---
 
-## Deployment (Phase 5 — in progress)
+## Testing
 
-The dashboard will be deployed to Streamlit Community Cloud (or Render). Both
-platforms terminate TLS and serve the app over **HTTPS by default**; secrets are
-supplied through the platform's secrets manager, mirroring `.env`. A
-`streamlit-authenticator` credential login gate is placed in front of the
-dashboard before any deployment step.
+```bash
+pytest
+```
+
+Pure unit tests (no database) covering the two modules most likely to hide
+silent bugs, plus the forecasting math:
+
+| File | Covers |
+| --- | --- |
+| `tests/test_clean.py` | whitespace/case standardisation, exact + order-line dedupe, type coercion, region imputation, **total reconciliation** (blank / absurd / consistent / invalid-input cases), quarantine reasons, all star-schema builders, and one end-to-end `transform()` on **deliberately messy input** (dupes, casing, blank & absurd totals, zero qty, negative price, bad date, missing product) |
+| `tests/test_segmentation.py` | `compute_rfm` values, **multi-line orders counting as one order**, analysis-window filtering, quintile direction/bounds + small-sample fallback, the full segment rule table, and end-to-end extremes (clear Champion / Hibernating) |
+| `tests/test_forecasting.py` | gap-filling to a daily series, feature matrix shape, linear-trend recovery, negative-prediction clipping |
+
+`.github/workflows/tests.yml` runs `pytest` on every push and PR.
+
+---
+
+## Deployment
+
+The dashboard deploys to **Streamlit Community Cloud** (or **Render**); both
+terminate TLS and serve over **HTTPS by default**. The login gate must be
+configured before deploying.
+
+### Streamlit Community Cloud
+
+1. Push to GitHub, then *New app* → pick the repo/branch, main file
+   `dashboard/app.py`.
+2. **Advanced settings → Secrets** — add, in TOML form, the same keys as `.env`:
+   `VENDRITE_DB_HOST/PORT/NAME`, `VENDRITE_DASHBOARD_DB_USER/PASSWORD` (the app
+   only needs the **read-only** role), and `VENDRITE_AUTH_*`. `config/settings.py`
+   reads `os.environ`, and Streamlit Cloud injects `st.secrets` into the
+   environment, so no code change is needed.
+3. The database must be reachable from Streamlit Cloud — use a managed Postgres
+   (Neon, Supabase, RDS, …) and run `sql/schema/01–04` against it once.
+
+### Render
+
+1. *New → Web Service* from the repo.
+2. Build: `pip install -r requirements.txt`;
+   Start: `streamlit run dashboard/app.py --server.port $PORT --server.address 0.0.0.0`.
+3. Add the same environment variables under *Environment*. Point at a Render
+   PostgreSQL instance (or external managed DB).
+
+The **ETL/analytics pipeline is not deployed with the dashboard** — it runs on
+the GitHub Actions schedule (or any cron host) with the write-enabled
+`vendrite_etl` role and populates the shared warehouse the dashboard reads.
 
 ---
 
 ## Security notes
 
-- No hardcoded credentials — `.env` locally (gitignored), Actions Secrets in CI.
-- Database access is exclusively via SQLAlchemy Core with **parameterized**
-  statements / reflected tables — no string-concatenated SQL.
-- Two least-privilege DB roles; the dashboard role cannot read `staging`.
-- Ingestion validates every row; malformed records are **quarantined with a
-  reason**, never silently dropped.
-- Analytics/dashboard code queries the `analytics` schema only.
+- **No hardcoded credentials.** Everything sensitive comes from env vars —
+  `.env` locally (gitignored), GitHub Actions Secrets in CI, the platform
+  secrets manager in deployment. `.env.example` documents every key.
+- **No string-concatenated SQL.** All DB access is SQLAlchemy Core with
+  reflected tables and bound parameters / `sqlalchemy.text(:param)`; dashboard
+  filtering never touches SQL (pure pandas).
+- **Two least-privilege DB roles.** `vendrite_etl` (read/write) is used only by
+  the pipeline; `vendrite_dashboard` (SELECT on `analytics` only) is used by the
+  dashboard and Power BI and **cannot read `staging`** or write anything —
+  enforced by GRANTs and verified in testing.
+- **Validated ingestion.** Every row is schema- and format-checked; malformed
+  records are quarantined to `data/processed/quarantine_*.csv` with a reason,
+  never silently dropped. Inconsistent totals are reconciled, not trusted.
+- **Schema isolation.** Analytics and dashboard code query the `analytics`
+  schema only, by convention *and* by the dashboard role's lack of `staging`
+  privileges.
+- **Auth before deploy.** The dashboard is behind a `streamlit-authenticator`
+  login; the password lives only as a bcrypt hash. Deployment platforms add
+  HTTPS on top.
+
+---
+
+## Design notes
+
+- **Separation of concerns** — ingestion (`etl/extract`), transformation
+  (`etl/clean`, pure/no-I/O), persistence (`etl/load`, the only DB-writing
+  module), analytics (`analytics/`), presentation (`dashboard/`), and reporting
+  (`reporting/`) never share a file. `run_pipeline.py` only *wires* them.
+- **The DDL is the single source of truth** — `etl/load.py` reflects tables at
+  runtime instead of redeclaring their structure.
+- **Idempotent loads** — dimensions upsert `ON CONFLICT`, facts insert
+  `ON CONFLICT (order_id, product_id) DO NOTHING`, so re-running the pipeline
+  converges rather than duplicating. Re-processing *corrected* source data needs
+  a truncate + reload (or switching the fact loader to `DO UPDATE`).
+- **Append-only history** — `customer_segments` gets a fresh cohort per run;
+  `sales_forecast` is versioned by `model_version` and never joined to facts, so
+  forecast iterations stay independent. Consumers use `DISTINCT ON` / latest
+  `generated_date` to get the current view.
+- **Explainable forecasting** — plain OLS on a day index + weekday one-hots; the
+  `t` coefficient *is* the revenue trend per day. No black box.
+- **Every run is logged** — each stage writes `STARTED`/`SUCCESS`/`FAILED` to
+  `analytics.etl_run_log`; failures are loud (non-zero exit, red CI).
+- **Python 3.14 note** — dependency pins were resolved to 3.14-compatible wheels
+  (pandas 3.0, numpy 2.5, …); the same tool set installs on 3.11–3.13.

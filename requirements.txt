@@ -26,6 +26,7 @@ plotly==7.0.0
 
 # --- Auth ---
 streamlit-authenticator==0.4.2
+bcrypt==5.0.0                 # password hashing (also a streamlit-authenticator dep)
 
 # --- Config / secrets ---
 python-dotenv==1.2.3

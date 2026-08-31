@@ -12,9 +12,10 @@ sidebar filtering is done in-memory with pandas (no SQL string building).
 
 Run:  streamlit run dashboard/app.py
 
-The ``streamlit-authenticator`` login gate is added in front of ``main()`` in
-Phase 5 (Security) — ``main()`` is deliberately a single entry point so it can
-be wrapped without touching the body.
+A ``streamlit-authenticator`` credential login gate guards ``main()``
+(``_require_login``). Credentials come only from environment variables
+(``VENDRITE_AUTH_*``) — nothing is hardcoded; the password is stored as a
+bcrypt hash, never plaintext.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import datetime as dt
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit_authenticator as stauth
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -41,6 +43,61 @@ SEGMENT_COLORS = {
     "Hibernating": "#9E9E9E",
     "Needs Attention": "#C62828",
 }
+
+
+# ===========================================================================
+# Authentication — credentials from env vars only, password as a bcrypt hash
+# ===========================================================================
+_AUTH_ENV = {
+    "VENDRITE_AUTH_COOKIE_KEY": settings.AUTH_COOKIE_KEY,
+    "VENDRITE_AUTH_USERNAME": settings.AUTH_USERNAME,
+    "VENDRITE_AUTH_NAME": settings.AUTH_NAME,
+    "VENDRITE_AUTH_PASSWORD_HASH": settings.AUTH_PASSWORD_HASH,
+}
+
+
+def _build_authenticator() -> stauth.Authenticate:
+    credentials = {
+        "usernames": {
+            settings.AUTH_USERNAME: {
+                "name": settings.AUTH_NAME,
+                "email": settings.AUTH_EMAIL or "",
+                "password": settings.AUTH_PASSWORD_HASH,  # already a bcrypt hash
+            }
+        }
+    }
+    return stauth.Authenticate(
+        credentials,
+        settings.AUTH_COOKIE_NAME,
+        settings.AUTH_COOKIE_KEY,
+        settings.AUTH_COOKIE_EXPIRY_DAYS,
+        auto_hash=False,
+    )
+
+
+def _require_login() -> str:
+    """Render the login gate. Returns the username, or halts the script."""
+    missing = [name for name, value in _AUTH_ENV.items() if not value]
+    if missing:
+        st.error(
+            "Dashboard authentication is not configured. Set these environment "
+            "variables (see `.env.example`): " + ", ".join(missing)
+        )
+        st.stop()
+
+    authenticator = _build_authenticator()
+    authenticator.login(location="main")
+    status = st.session_state.get("authentication_status")
+    if status is False:
+        st.error("Incorrect username or password.")
+        st.stop()
+    if status is None:
+        st.info("Please sign in to view the dashboard.")
+        st.stop()
+
+    authenticator.logout(location="sidebar")
+    st.sidebar.caption(f"Signed in as {st.session_state.get('name')}")
+    return st.session_state.get("username")
 
 
 # ===========================================================================
@@ -296,6 +353,8 @@ def category_drilldown(df: pd.DataFrame) -> None:
 # Main
 # ===========================================================================
 def main() -> None:
+    _require_login()
+
     st.title("📊 Vendrite — Sales & Customer Analytics")
 
     try:
