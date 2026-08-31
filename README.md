@@ -4,10 +4,9 @@ E-commerce sales & customer analytics platform — an ETL pipeline, RFM customer
 segmentation, and short-term demand forecasting, surfaced through an interactive
 Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 
-> **Build status:** Phases 1–2 complete (Data Foundation + Analytics Layer:
-> ETL → star schema, RFM segmentation, linear-regression forecast, all
-> DB-verified). Phases 3–5 (dashboard, automation, security/testing/deploy)
-> are scaffolded and in progress.
+> **Build status:** Phases 1–3 complete (Data Foundation + Analytics Layer +
+> Streamlit/Plotly dashboard, all DB-verified). Phases 4–5 (automation,
+> security/testing/deploy) are scaffolded and in progress.
 
 ---
 
@@ -186,6 +185,36 @@ versions stay independent.
 
 ---
 
+## Dashboard
+
+```bash
+streamlit run dashboard/app.py
+```
+
+`dashboard/app.py` connects with the **read-only `vendrite_dashboard` role** and
+reads only the `analytics` schema (all SQL is parameterised `sqlalchemy.text`;
+sidebar filtering is pure in-memory pandas). It performs no ETL/analytics logic —
+just renders the materialised results. Contents:
+
+- **Sidebar filters** — date range, category, region. All charts and KPIs react.
+- **KPI cards** — revenue, orders, units, average order value, active customers,
+  each with a delta vs the equal-length preceding period.
+- **Sales trend** — Plotly area chart with a Daily / Weekly / Monthly toggle and
+  a 7-day rolling average.
+- **Forecast** — last 90 days actual vs the `sales_forecast` horizon (dashed),
+  split by a marker at the last actual day.
+- **Revenue by category / region** — horizontal bar charts.
+- **Customer segments (RFM)** — segment distribution bar, an avg-R/F/M profile
+  table, and a **drill-down**: pick a segment → its customer list (with CSV
+  download).
+- **Category drill-down** — pick a category → monthly revenue + top-10 products.
+- **Pipeline status** — the recent `etl_run_log` rows.
+
+The `streamlit-authenticator` login gate is added in Phase 5; `main()` is a
+single entry point so it can be wrapped without changing the body.
+
+---
+
 ## Scheduled job (Phase 4 — in progress)
 
 A GitHub Actions workflow (`.github/workflows/`) will run the full chain on a
@@ -196,13 +225,33 @@ workflow loudly on any error, and uploads the generated `reports/` artifact.
 
 ---
 
-## Power BI companion report (Phase 3 — optional, documented only)
+## Power BI companion report (optional — documented only, not built)
 
-Power BI Desktop is a manual, out-of-scope companion. To point it at the
-warehouse: **Get Data → PostgreSQL database**, server `="<host>:5432"`, database
-`vendrite`, connect with the `vendrite_dashboard` (read-only) role, and import
-the `analytics` schema tables. Model `fact_sales` against the three dimensions on
-their `*_id` keys.
+Power BI Desktop is a manual companion outside the automated pipeline. No `.pbix`
+file is produced by this repo; connect it to the same warehouse:
+
+1. **Get Data → PostgreSQL database.**
+   - Server: `localhost:5432` (or your host)
+   - Database: `vendrite`
+   - Data Connectivity mode: **Import** (or DirectQuery for live refresh)
+2. **Credentials:** use the read-only **`vendrite_dashboard`** role — never the
+   ETL role. Power BI only needs `SELECT` on `analytics`.
+3. **Select tables** from the `analytics` schema: `fact_sales`, `dim_customer`,
+   `dim_product`, `dim_date`, `customer_segments`, `sales_forecast`. Do **not**
+   import the `staging` schema (the dashboard role cannot see it anyway).
+4. **Model** (Model view): relationships
+   - `fact_sales[customer_id]` → `dim_customer[customer_id]`
+   - `fact_sales[product_id]`  → `dim_product[product_id]`
+   - `fact_sales[date_id]`     → `dim_date[date_id]`
+   - `customer_segments[customer_id]` → `dim_customer[customer_id]`
+   Mark `dim_date` as the date table (on `dim_date[date]`).
+5. **Suggested measures:**
+   `Revenue = SUM(fact_sales[total_amount])`,
+   `Orders = DISTINCTCOUNT(fact_sales[order_id])`,
+   `Units = SUM(fact_sales[quantity])`,
+   `AOV = DIVIDE([Revenue], [Orders])`.
+6. **Refresh:** schedule it to run after the GitHub Actions pipeline (Phase 4)
+   so the report always trails a completed ETL run.
 
 ---
 
