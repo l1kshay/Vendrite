@@ -10,11 +10,12 @@ import streamlit as st
 
 from dashboard.data import load_clv, load_segments
 from dashboard.theme import (
+    BORDER_STRONG,
     PLOTLY_TEMPLATE,
-    QUADRANT_COLORS,
     QUADRANT_ORDER,
     SEGMENT_COLORS,
     SEGMENT_ORDER,
+    TEXT_MUTED,
     money,
 )
 from dashboard.transforms import assign_quadrants, quadrant_summary, rfm_clv_frame
@@ -45,21 +46,37 @@ def _rfm_profile(seg):
     )
 
 
+_CORNERS = [  # (x, y, text) in paper coords — quadrant names carried by position
+    (0.99, 0.98, "PROTECT"),
+    (0.01, 0.98, "WIN BACK"),
+    (0.99, 0.03, "UPSELL"),
+    (0.01, 0.03, "LOW PRIORITY"),
+]
+
+
 def _quadrant_scatter(rc) -> None:
     r_cut = float(rc["rfm_score"].median())
     c_cut = float(rc["predicted_clv"].median())
+    # Colour by SEGMENT (a validated semantic palette); the four quadrants are
+    # read off the median crosshair + the corner labels, not a 4th colour axis
+    # (four categorical hues can't clear the scatter all-pairs CVD gate).
     fig = px.scatter(
-        rc, x="rfm_score", y="predicted_clv", color="quadrant",
-        category_orders={"quadrant": QUADRANT_ORDER},
-        color_discrete_map=QUADRANT_COLORS, template=PLOTLY_TEMPLATE,
+        rc, x="rfm_score", y="predicted_clv", color="segment_label",
+        category_orders={"segment_label": SEGMENT_ORDER},
+        color_discrete_map=SEGMENT_COLORS, template=PLOTLY_TEMPLATE,
         hover_data=["customer", "segment_label", "monetary", "purchase_freq_annual"],
-        log_y=True, opacity=0.75,
+        log_y=True, opacity=0.8,
     )
-    fig.add_vline(x=r_cut, line_width=1, line_dash="dot", line_color="#90A4AE")
-    fig.add_hline(y=c_cut, line_width=1, line_dash="dot", line_color="#90A4AE")
+    fig.update_traces(marker=dict(size=7, line=dict(width=0)))
+    fig.add_vline(x=r_cut, line_width=1, line_dash="dot", line_color=BORDER_STRONG)
+    fig.add_hline(y=c_cut, line_width=1, line_dash="dot", line_color=BORDER_STRONG)
+    for x, y, txt in _CORNERS:
+        fig.add_annotation(x=x, y=y, xref="paper", yref="paper", text=txt,
+                           showarrow=False, font=dict(size=10, color=TEXT_MUTED),
+                           xanchor="right" if x > 0.5 else "left")
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=420,
-                      xaxis_title="RFM score (recent engagement)", yaxis_title="Predicted CLV (log)",
-                      legend_title=None)
+                      xaxis_title="RFM score (recent engagement)",
+                      yaxis_title="Predicted CLV (log)", legend_title=None)
     st.plotly_chart(fig, width="stretch")
 
 
@@ -80,36 +97,38 @@ def render() -> None:
 
     left, right = st.columns([2, 3])
     with left:
-        st.subheader("RFM segment mix")
-        _distribution(seg)
+        with st.container(border=True):
+            st.subheader("RFM segment mix")
+            _distribution(seg)
     with right:
-        st.subheader("RFM profile by segment")
-        st.dataframe(_rfm_profile(seg), width="stretch")
-        st.caption("Recency in days (lower is better), frequency in orders, monetary in $ — "
-                   "the averages the segment rules act on.")
+        with st.container(border=True):
+            st.subheader("RFM profile by segment")
+            st.dataframe(_rfm_profile(seg), width="stretch")
+            st.caption("Recency in days (lower is better), frequency in orders, monetary in $ — "
+                       "the averages the segment rules act on.")
 
-    st.divider()
-    st.subheader("RFM engagement vs projected value")
+    st.write("")
     rc = assign_quadrants(rfm_clv_frame(seg, clv))
-    _quadrant_scatter(rc)
-    st.caption(
-        "Dotted lines are the medians of each axis. **Protect** (top-right) are high on both — "
-        "guard them. **Win back** (top-left) score low on recent engagement but high projected "
-        "value — the lapsing-VIP list. **Upsell** (bottom-right) buy often but cheaply. "
-        "Because CLV annualises frequency, it rewards *current velocity* where RFM's monetary "
-        "score rewards *cumulative* spend — that's why the two disagree."
-    )
+    with st.container(border=True):
+        st.subheader("RFM engagement vs projected value")
+        _quadrant_scatter(rc)
+        st.caption(
+            "Dotted lines are the medians of each axis. **Protect** (top-right) are high on both "
+            "— guard them. **Win back** (top-left) score low on recent engagement but high "
+            "projected value — the lapsing-VIP list. **Upsell** (bottom-right) buy often but "
+            "cheaply. Because CLV annualises frequency, it rewards *current velocity* where RFM's "
+            "monetary score rewards *cumulative* spend — that's why the two disagree."
+        )
+        summ = quadrant_summary(rc)
+        st.dataframe(
+            summ.assign(
+                total_clv=summ["total_clv"].map(money),
+                median_clv=summ["median_clv"].map(money),
+            ),
+            width="stretch",
+        )
 
-    summ = quadrant_summary(rc)
-    st.dataframe(
-        summ.assign(
-            total_clv=summ["total_clv"].map(money),
-            median_clv=summ["median_clv"].map(money),
-        ),
-        width="stretch",
-    )
-
-    st.divider()
+    st.write("")
     st.subheader("Drill in")
     by = st.radio("Group by", ["Quadrant", "RFM segment"], horizontal=True)
     if by == "Quadrant":

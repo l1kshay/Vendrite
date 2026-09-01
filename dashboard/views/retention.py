@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from dashboard.data import load_cohort_retention
-from dashboard.theme import PLOTLY_TEMPLATE, SEQUENTIAL_SCALE
+from dashboard.theme import ACCENT, PLOTLY_TEMPLATE, SEQUENTIAL_SCALE
 from dashboard.transforms import avg_retention_curve, cohort_sizes, retention_matrix
 
 
@@ -31,42 +31,50 @@ def render() -> None:
 
     matrix = retention_matrix(cohorts)
     sizes = cohort_sizes(cohorts)
-    labels = [f"{d}  (n={sizes.get(d, 0)})" for d in matrix.index]
+    labels = [f"{d}  ·  n={sizes.get(d, 0)}" for d in matrix.index]
 
-    fig = px.imshow(
-        matrix.to_numpy(),
-        x=[str(c) for c in matrix.columns],
-        y=labels,
-        color_continuous_scale=SEQUENTIAL_SCALE,
-        zmin=0, zmax=1,
-        aspect="auto",
-        text_auto=".0%",
-        template=PLOTLY_TEMPLATE,
-    )
-    fig.update_layout(margin=dict(l=0, r=0, t=10, b=0),
-                      height=max(320, 26 * len(matrix) + 60),
-                      xaxis_title="Months since signup", yaxis_title=None,
-                      coloraxis_colorbar=dict(title="Retained", tickformat=".0%"))
-    fig.update_xaxes(side="top")
-    st.plotly_chart(fig, width="stretch")
-    st.caption(
-        "Each cell is *retained ÷ cohort size* for that month. Month 0 is the signup month "
-        "itself. A steep fall from month 0 to month 1 points at onboarding; roughly flat rows "
-        "mean the product holds the customers it lands."
-    )
+    with st.container(border=True):
+        st.subheader("Cohort heatmap")
+        fig = px.imshow(
+            matrix.to_numpy(),
+            x=[str(c) for c in matrix.columns],
+            y=labels,
+            color_continuous_scale=SEQUENTIAL_SCALE,
+            zmin=0, zmax=1,
+            aspect="auto",
+            text_auto=".0%",
+            template=PLOTLY_TEMPLATE,
+        )
+        # values sit in mostly mid-to-light amber cells -> dark ink reads; the
+        # rare near-zero (dark) cell trades cell-text contrast for hover.
+        fig.update_traces(textfont=dict(size=10, color="#1A1A1A"))
+        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0),
+                          height=max(320, 26 * len(matrix) + 70),
+                          xaxis_title="Months since signup", yaxis_title=None,
+                          coloraxis_colorbar=dict(title="Retained", tickformat=".0%"))
+        fig.update_xaxes(side="top")
+        st.plotly_chart(fig, width="stretch")
+        st.caption(
+            "Each cell is *retained ÷ cohort size* for that month. Month 0 is the signup month "
+            "itself. A steep fall from month 0 to month 1 points at onboarding; roughly flat "
+            "rows mean the product holds the customers it lands."
+        )
 
-    st.divider()
-    st.subheader("Average retention curve")
-    curve = avg_retention_curve(cohorts)
-    fig2 = px.line(curve, x="months_since_signup", y="retention_rate", markers=True,
-                   template=PLOTLY_TEMPLATE)
-    fig2.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300,
-                       yaxis_tickformat=".0%", yaxis_title="Mean retention",
-                       xaxis_title="Months since signup")
-    fig2.update_yaxes(range=[0, 1])
-    st.plotly_chart(fig2, width="stretch")
-    st.caption(
-        "Averaged across every cohort that reaches each month. Later points average fewer "
-        "cohorts (only older cohorts have that much runway), so treat the right-hand tail as "
-        "noisier than the left."
-    )
+    st.write("")
+    with st.container(border=True):
+        st.subheader("Average retention curve")
+        curve = avg_retention_curve(cohorts)
+        fig2 = px.line(curve, x="months_since_signup", y="retention_rate", markers=True,
+                       template=PLOTLY_TEMPLATE)
+        # single summary series -> the gold emphasis accent
+        fig2.update_traces(line=dict(color=ACCENT, width=2), marker=dict(color=ACCENT, size=7))
+        fig2.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300,
+                           yaxis_tickformat=".0%", yaxis_title="Mean retention",
+                           xaxis_title="Months since signup")
+        fig2.update_yaxes(range=[0, 1])
+        st.plotly_chart(fig2, width="stretch")
+        st.caption(
+            "Averaged across every cohort that reaches each month. Later points average fewer "
+            "cohorts (only older cohorts have that much runway), so treat the right-hand tail "
+            "as noisier than the left."
+        )
