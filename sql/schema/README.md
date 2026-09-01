@@ -9,6 +9,7 @@ order they must be applied.
 | `02_roles.sql` | Create the two DB roles (`vendrite_etl`, `vendrite_dashboard`) and grant privileges |
 | `03_staging.sql` | `staging.raw_transactions` — raw, unvalidated landing table |
 | `04_analytics.sql` | Star schema: dimensions, `fact_sales`, `customer_segments`, `sales_forecast`, `etl_run_log`, plus all constraints and indexes |
+| `05_clv_cohorts.sql` | `customer_clv` + `cohort_retention` (analytical-depth revamp). **Additive** — `CREATE ... IF NOT EXISTS`, no `DROP`, safe to run against a populated database |
 
 ## Applying with `psql`
 
@@ -18,7 +19,11 @@ psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/01_sc
 psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/02_roles.sql
 psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/03_staging.sql
 psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/04_analytics.sql
+psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/05_clv_cohorts.sql
 ```
+
+`05_clv_cohorts.sql` is additive and idempotent — run it on its own to add the
+CLV / cohort tables to an existing warehouse without disturbing loaded data.
 
 Create the database first if needed: `createdb -h localhost -U postgres vendrite`.
 
@@ -58,6 +63,8 @@ Two roles are created in `02_roles.sql`:
                                 order_id, quantity, total_amount
 
   customer_segments   -> FK customer_id; one row appended per computation cycle
+  customer_clv        -> FK customer_id; append-only heuristic CLV + components
+  cohort_retention    -> signup-month cohort x months-since-signup grid
   sales_forecast      -> standalone; versioned by model_version (no FK to facts)
   etl_run_log         -> one row per pipeline run
 ```

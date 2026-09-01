@@ -194,6 +194,34 @@ FORECAST_HORIZON_DAYS: int = int(os.getenv("VENDRITE_FORECAST_HORIZON_DAYS", "30
 
 
 # ---------------------------------------------------------------------------
+# Customer Lifetime Value (analytical-depth revamp, Phase A)
+# ---------------------------------------------------------------------------
+# Heuristic, fully explainable CLV -- see analytics/clv.py for the formula.
+# Every knob below is a documented assumption, overridable from the environment.
+CLV_METHOD_VERSION: str = os.getenv("VENDRITE_CLV_METHOD_VERSION", "clv-heuristic-v1")
+# Gross margin applied to lifetime revenue. The source data carries no cost of
+# goods, so CLV is profit-based under this single flat assumption.
+CLV_GROSS_MARGIN: float = float(os.getenv("VENDRITE_CLV_GROSS_MARGIN", "0.30"))
+# A customer with no purchase in this many days counts as churned when
+# estimating the base churn rate (expected lifespan = 1 / churn_rate).
+CLV_CHURN_DAYS: int = int(os.getenv("VENDRITE_CLV_CHURN_DAYS", "90"))
+# Floor on observed tenure (days) when annualising purchase frequency, so a
+# brand-new customer does not get an explosive orders-per-year figure.
+CLV_MIN_TENURE_DAYS: int = int(os.getenv("VENDRITE_CLV_MIN_TENURE_DAYS", "30"))
+# Clamp the estimated lifespan: a ~12-month observation window cannot support
+# confident estimates outside this range.
+CLV_LIFESPAN_MIN_YEARS: float = float(os.getenv("VENDRITE_CLV_LIFESPAN_MIN_YEARS", "1.0"))
+CLV_LIFESPAN_MAX_YEARS: float = float(os.getenv("VENDRITE_CLV_LIFESPAN_MAX_YEARS", "10.0"))
+
+
+# ---------------------------------------------------------------------------
+# Cohort retention (analytical-depth revamp, Phase A)
+# ---------------------------------------------------------------------------
+# Longest horizon (months since signup) to report per cohort.
+COHORT_MAX_MONTHS: int = int(os.getenv("VENDRITE_COHORT_MAX_MONTHS", "12"))
+
+
+# ---------------------------------------------------------------------------
 # Dashboard auth (Phase 5)
 # ---------------------------------------------------------------------------
 AUTH_COOKIE_NAME: str = os.getenv("VENDRITE_AUTH_COOKIE_NAME", "vendrite_auth")
