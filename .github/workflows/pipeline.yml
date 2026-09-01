@@ -4,6 +4,12 @@ name: Vendrite pipeline
 # Fails loudly (job goes red) on any stage error; every stage also records a
 # FAILED row in analytics.etl_run_log. The rendered report is uploaded as a
 # build artifact after each run.
+#
+# Target database: a managed Neon PostgreSQL project. The schema and the two
+# least-privilege roles are applied ONCE (out of band) via sql/schema/01-04.sql
+# -- this workflow deliberately does NOT run that DDL, because 03/04 start with
+# DROP TABLE and would wipe the append-only customer_segments / sales_forecast
+# history on every scheduled run.
 
 on:
   schedule:
@@ -21,40 +27,19 @@ jobs:
   pipeline:
     runs-on: ubuntu-latest
 
-    # Ephemeral PostgreSQL for CI. To run against a real managed database
-    # instead, delete this `services:` block and set VENDRITE_DB_HOST /
-    # VENDRITE_DB_PORT / VENDRITE_DB_NAME + the credential secrets below.
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ${{ secrets.VENDRITE_SUPERUSER_PASSWORD || 'postgres' }}
-          POSTGRES_DB: vendrite
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
-      # app config (config/settings.py reads these)
-      VENDRITE_DB_HOST: localhost
+      # ---- non-secret connection config (config/settings.py reads these) ----
       VENDRITE_DB_PORT: "5432"
       VENDRITE_DB_NAME: vendrite
+      VENDRITE_DB_SSLMODE: require
+      VENDRITE_DB_CHANNEL_BINDING: require
       VENDRITE_ETL_DB_USER: vendrite_etl
-      VENDRITE_ETL_DB_PASSWORD: ${{ secrets.VENDRITE_ETL_DB_PASSWORD || 'etl_ci_pw' }}
       VENDRITE_DASHBOARD_DB_USER: vendrite_dashboard
-      VENDRITE_DASHBOARD_DB_PASSWORD: ${{ secrets.VENDRITE_DASHBOARD_DB_PASSWORD || 'dash_ci_pw' }}
       VENDRITE_MOCK_SEED: "42"
-      # psql client auth for the schema-provisioning steps
-      PGHOST: localhost
-      PGPORT: "5432"
-      PGUSER: postgres
-      PGPASSWORD: ${{ secrets.VENDRITE_SUPERUSER_PASSWORD || 'postgres' }}
-      PGDATABASE: vendrite
+      # ---- secrets: Neon endpoint + role passwords -------------------------
+      VENDRITE_DB_HOST: ${{ secrets.VENDRITE_DB_HOST }}
+      VENDRITE_ETL_DB_PASSWORD: ${{ secrets.VENDRITE_ETL_DB_PASSWORD }}
+      VENDRITE_DASHBOARD_DB_PASSWORD: ${{ secrets.VENDRITE_DASHBOARD_DB_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -69,25 +54,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Wait for PostgreSQL
+      - name: Check required secrets are present
         run: |
-          for i in $(seq 1 30); do
-            pg_isready -h localhost -U postgres && exit 0
-            sleep 2
+          missing=
+          for name in VENDRITE_DB_HOST VENDRITE_ETL_DB_PASSWORD VENDRITE_DASHBOARD_DB_PASSWORD; do
+            eval "val=\${$name}"
+            [ -n "$val" ] || missing="$missing $name"
           done
-          echo "PostgreSQL did not become ready" && exit 1
-
-      - name: Apply database schema
-        run: |
-          psql -v ON_ERROR_STOP=1 -f sql/schema/01_schemas.sql
-          psql -v ON_ERROR_STOP=1 -f sql/schema/02_roles.sql
-          psql -v ON_ERROR_STOP=1 -f sql/schema/03_staging.sql
-          psql -v ON_ERROR_STOP=1 -f sql/schema/04_analytics.sql
-
-      - name: Provision role passwords
-        run: |
-          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE vendrite_etl WITH PASSWORD '${VENDRITE_ETL_DB_PASSWORD}';"
-          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE vendrite_dashboard WITH PASSWORD '${VENDRITE_DASHBOARD_DB_PASSWORD}';"
+          if [ -n "$missing" ]; then
+            echo "Missing repository secret(s):$missing" >&2
+            exit 1
+          fi
 
       - name: Run pipeline (ETL -> analytics -> report)
         run: python run_pipeline.py --generate
@@ -104,5 +81,20 @@ jobs:
       - name: Failure diagnostics (etl_run_log tail)
         if: failure()
         run: |
-          psql -c "SELECT run_id, run_timestamp, status, records_processed, left(error_message, 200) AS error
-                   FROM analytics.etl_run_log ORDER BY run_id DESC LIMIT 15;" || true
+          python - <<'PY'
+          from sqlalchemy import create_engine, text
+          from config import settings
+
+          try:
+              engine = create_engine(settings.etl_database_url())
+              with engine.connect() as conn:
+                  rows = conn.execute(text(
+                      "SELECT run_id, run_timestamp, status, records_processed, "
+                      "left(error_message, 200) AS error "
+                      "FROM analytics.etl_run_log ORDER BY run_id DESC LIMIT 15"
+                  )).all()
+              for r in rows:
+                  print(r)
+          except Exception as exc:  # diagnostics must never mask the real failure
+              print(f"could not read etl_run_log: {exc}")
+          PY

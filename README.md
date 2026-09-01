@@ -264,33 +264,36 @@ the current forecast, extract/transform quarantine counts, and the recent
 ### Scheduled GitHub Actions workflow
 
 `.github/workflows/pipeline.yml` runs daily at **02:00 UTC** (and on demand via
-*Run workflow*):
+*Run workflow*) against the managed **Neon** database:
 
-1. spins up an ephemeral `postgres:16` service,
-2. installs pinned deps, applies `sql/schema/01–04`, sets the two role
-   passwords,
+1. installs pinned deps,
+2. checks the three required secrets are present (fails fast if not),
 3. runs `python run_pipeline.py --generate`,
 4. **uploads `reports/` as a build artifact** (`vendrite-report-<run#>`,
    30-day retention) — on success *and* failure,
-5. on failure, dumps the `etl_run_log` tail into the job log.
+5. on failure, prints the `etl_run_log` tail (read via SQLAlchemy) into the job log.
 
-Any error makes the job go red (`ON_ERROR_STOP=1` for schema steps; non-zero
-exit from `run_pipeline.py`).
+Any non-zero exit from `run_pipeline.py` makes the job go red.
 
-**Repository secrets** (Settings → Secrets and variables → Actions). All are
-optional for the CI/ephemeral-DB path (safe fallbacks are used) and
-**required** when pointing at a real database:
+The workflow deliberately does **not** apply `sql/schema/01–04` — those files
+begin with `DROP TABLE`, which would wipe the append-only `customer_segments`
+and `sales_forecast` history every night. Schema + roles are applied to Neon
+**once**, out of band (see *Setup*).
 
-| Secret | Purpose |
+**Repository secrets** (Settings → Secrets and variables → Actions) — all three
+**required**:
+
+| Secret | Value |
 | --- | --- |
-| `VENDRITE_SUPERUSER_PASSWORD` | Postgres superuser, for schema + role provisioning |
-| `VENDRITE_ETL_DB_PASSWORD` | password set for / used by the `vendrite_etl` role |
-| `VENDRITE_DASHBOARD_DB_PASSWORD` | password set for / used by the `vendrite_dashboard` role |
+| `VENDRITE_DB_HOST` | Neon **direct** endpoint hostname only (e.g. `ep-xxxx.region.aws.neon.tech`) — no scheme, port, or query string |
+| `VENDRITE_ETL_DB_PASSWORD` | password for the `vendrite_etl` role |
+| `VENDRITE_DASHBOARD_DB_PASSWORD` | password for the `vendrite_dashboard` role |
 
-To target a managed database instead of the CI service, delete the `services:`
-block in the workflow and add `VENDRITE_DB_HOST` / `VENDRITE_DB_PORT` /
-`VENDRITE_DB_NAME` (as secrets or `env:`), then drop `--generate` if you have a
-real upstream source.
+Everything else the pipeline needs (`VENDRITE_DB_PORT`, `VENDRITE_DB_NAME`,
+`VENDRITE_DB_SSLMODE=require`, `VENDRITE_DB_CHANNEL_BINDING=require`,
+`VENDRITE_ETL_DB_USER`, `VENDRITE_DASHBOARD_DB_USER`, `VENDRITE_MOCK_SEED`) is
+non-secret and hardcoded in the workflow's `env:` block. Swap `--generate` for a
+real extract step once an upstream source exists.
 
 ---
 
