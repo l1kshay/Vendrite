@@ -4,10 +4,12 @@ E-commerce sales & customer analytics platform — an ETL pipeline, RFM customer
 segmentation, and short-term demand forecasting, surfaced through an interactive
 Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 
-> **Build status:** Core 5 phases complete — ETL → PostgreSQL star schema,
-> RFM segmentation, linear-regression forecast, Streamlit/Plotly dashboard
-> behind a credential login gate, scheduled GitHub Actions pipeline + templated
-> run report, and a pytest suite. All DB-verified end to end.
+> **Build status:** Core 5 phases + analytical-depth revamp complete — ETL →
+> PostgreSQL star schema, RFM segmentation, heuristic CLV, signup-month cohort
+> retention, two forecast models (linear regression + Holt-Winters) with a
+> holdout backtest, a four-page dark-themed Streamlit/Plotly dashboard behind a
+> credential login gate, scheduled GitHub Actions pipeline + templated run
+> report, and a 78-test pytest suite. All Neon-verified end to end.
 >
 > **Analytical-depth revamp in progress:** Phase A added heuristic Customer
 > Lifetime Value (`analytics/clv.py`) and signup-month cohort retention
@@ -15,8 +17,10 @@ Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 > (Holt-Winters) alongside the linear regression, with a holdout backtest —
 > each with its own tests. Phase C restructured the dashboard into a four-page
 > `st.navigation` app (Overview / Segments & CLV / Retention / Forecasting)
-> with a shared data/transforms/theme layer. Phase D (visual design pass)
-> follows.
+> with a shared data/transforms/theme layer. Phase D applied a dark
+> developer-console visual design — token system in `dashboard/theme.py` +
+> `.streamlit/config.toml`, a validated Plotly dark template, card layout, and
+> a warm-gold accent. **Revamp complete.**
 
 ---
 
@@ -314,6 +318,39 @@ only the `analytics` schema; it performs no ETL/analytics logic. Module layout:
   the **holdout backtest** table (MAE/RMSE/MAPE per model, read from
   `analytics.forecast_backtest`); a plain-language verdict; and a
   "when each model wins" side-by-side.
+
+### Visual design
+
+A dark developer-console aesthetic — the whole system lives in `dashboard/theme.py`
+and `.streamlit/config.toml` (kept in lock-step); no view module hard-codes a colour
+or font.
+
+- **Three surface tiers** (`#0B0B0C` page → `#161618` card → `#1F1F22` inset) with
+  1px borders; depth from the tiers, not shadows. Every KPI, chart and table sits
+  in its own bordered card with uniform radius and padding.
+- **One accent — warm gold `#E8B23A`.** Reserved for the active nav item, the
+  primary button, and a genuine chart highlight (the 7-day trend average, the
+  retention curve, the forecast "today" divider). Retail analytics is about
+  revenue and value; gold is the universal commercial signal, and a warm accent
+  against cool surfaces is what gives the layered depth. Status colours are muted
+  and always ship with an icon + word, never colour alone.
+- **Type** — Inter, a deliberate scale (28px titles → 11px uppercase KPI labels →
+  30px values), tight line-heights.
+- **Charts** — one registered `vendrite_dark` Plotly template (card-surface
+  background, a single hairline y-grid, recessive axes, themed hover). Categorical
+  colours are the data-viz reference palette's **validated dark colorway** (order
+  unchanged — the order is the colour-vision-deficiency safety mechanism;
+  re-validated against the `#161618` surface). The cohort heatmap uses a
+  lightness-monotonic **amber** sequential ramp that ties the heat to the accent
+  hue.
+- **Sidebar nav** — section labels, icons, an accent active state with a left
+  indicator, hover feedback.
+- **Login** — a centred card on the dark ground with the Vendrite wordmark and a
+  single gold button.
+
+Streamlit limits noted in code: `st.dataframe` is a canvas grid, so large tables
+get the base-dark look + column config rather than restyled headers (the small
+summary tables use `st.table`, which is HTML and fully themed).
 
 ### Login gate
 

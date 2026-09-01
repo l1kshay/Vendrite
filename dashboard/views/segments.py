@@ -103,7 +103,7 @@ def render() -> None:
     with right:
         with st.container(border=True):
             st.subheader("RFM profile by segment")
-            st.dataframe(_rfm_profile(seg), width="stretch")
+            st.table(_rfm_profile(seg))
             st.caption("Recency in days (lower is better), frequency in orders, monetary in $ — "
                        "the averages the segment rules act on.")
 
@@ -120,12 +120,11 @@ def render() -> None:
             "monetary score rewards *cumulative* spend — that's why the two disagree."
         )
         summ = quadrant_summary(rc)
-        st.dataframe(
+        st.table(
             summ.assign(
                 total_clv=summ["total_clv"].map(money),
                 median_clv=summ["median_clv"].map(money),
-            ),
-            width="stretch",
+            )
         )
 
     st.write("")

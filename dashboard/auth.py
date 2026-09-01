@@ -52,14 +52,27 @@ def require_login() -> str:
         st.stop()
 
     authenticator = _build_authenticator()
-    authenticator.login(location="main")
-    status = st.session_state.get("authentication_status")
-    if status is False:
-        st.error("Incorrect username or password.")
-        st.stop()
-    if status is None:
-        st.info("Please sign in to view the dashboard.")
-        st.stop()
+
+    if st.session_state.get("authentication_status") is not True:
+        # centred product login: wordmark, then the form as a card in a
+        # narrow middle column
+        st.markdown(
+            '<div class="vd-login-head"><span class="vd-wordmark">Vendrite</span></div>'
+            '<div class="vd-login-sub">Sales &amp; customer analytics</div>',
+            unsafe_allow_html=True,
+        )
+        mid = st.columns([1, 1.2, 1])[1]
+        with mid:
+            authenticator.login(location="main")
+            status = st.session_state.get("authentication_status")
+            if status is False:
+                st.error("Incorrect username or password.")
+            elif status is None:
+                st.caption("Enter your credentials to continue.")
+        if st.session_state.get("authentication_status") is not True:
+            st.stop()
+    else:
+        authenticator.login(location="main")  # keeps the cookie component mounted
 
     authenticator.logout(location="sidebar")
     st.sidebar.caption(f"Signed in as {st.session_state.get('name')}")

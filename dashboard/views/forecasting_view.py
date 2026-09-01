@@ -84,7 +84,7 @@ def render() -> None:
                 "model_version": "model", "mae": "MAE", "rmse": "RMSE",
                 "mape_pct": "MAPE %", "n_holdout": "holdout days",
             }).drop(columns=["horizon_days"])
-            st.dataframe(show.set_index("model"), width="stretch")
+            st.table(show.set_index("model"))
             winner = bt.sort_values("mae")["model_version"].iloc[0]
             spread = bt["mae"].max() - bt["mae"].min()
             rel = spread / bt["mae"].min() if bt["mae"].min() else 0.0

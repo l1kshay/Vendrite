@@ -314,16 +314,31 @@ a {{ color: var(--accent); }}
 /* ---- dataframes / tables --------------------------------------------- */
 [data-testid="stDataFrame"] {{ border: 1px solid var(--border); border-radius: var(--radius); }}
 [data-testid="stTable"] table {{ border: none; }}
-[data-testid="stTable"] thead th {{
+[data-testid="stTable"] thead th, [data-testid="stTable"] tbody th {{
   background: var(--bg-inset); color: var(--text-muted);
-  font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
-  border-bottom: 1px solid var(--border); text-align: left;
+  font-size: .68rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  border-color: var(--border); text-align: left;
 }}
 [data-testid="stTable"] tbody td {{
   color: var(--text-secondary); border-color: var(--border);
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums; text-align: right;
 }}
-[data-testid="stTable"] tbody tr:hover td {{ background: var(--bg-inset); }}
+[data-testid="stTable"] tbody tr:hover td, [data-testid="stTable"] tbody tr:hover th {{
+  background: var(--bg-inset);
+}}
+
+/* ---- login form as a card --------------------------------------------- */
+[data-testid="stForm"] {{
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 22px 22px 8px;
+}}
+[data-testid="stForm"] [data-testid="stFormSubmitButton"] button {{
+  width: 100%; background: var(--accent); border-color: var(--accent);
+  color: var(--accent-ink); font-weight: 600;
+}}
+[data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover {{
+  background: var(--accent-hover); border-color: var(--accent-hover);
+}}
 
 /* ---- radio / segmented controls as quiet pills --------------------- */
 [data-testid="stRadio"] label {{ color: var(--text-secondary); }}
