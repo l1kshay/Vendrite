@@ -73,6 +73,16 @@ DB_HOST: str | None = os.getenv("VENDRITE_DB_HOST", "localhost")
 DB_PORT: int = int(os.getenv("VENDRITE_DB_PORT", "5432"))
 DB_NAME: str | None = os.getenv("VENDRITE_DB_NAME", "vendrite")
 
+# TLS mode passed straight through to libpq/psycopg2 as a connection option.
+# Unset (or "prefer"/"disable") for a local PostgreSQL that has no TLS.
+# Cloud Postgres providers such as Neon require "require" (or stricter,
+# e.g. "verify-full" together with VENDRITE_DB_SSLROOTCERT).
+DB_SSLMODE: str | None = os.getenv("VENDRITE_DB_SSLMODE") or None
+DB_SSLROOTCERT: str | None = os.getenv("VENDRITE_DB_SSLROOTCERT") or None
+# SCRAM channel binding ("require" / "prefer" / "disable"). Neon's copy-paste
+# connection string sets this to "require"; harmless to leave unset locally.
+DB_CHANNEL_BINDING: str | None = os.getenv("VENDRITE_DB_CHANNEL_BINDING") or None
+
 # ETL role -- write access to staging + analytics.
 ETL_DB_USER: str | None = os.getenv("VENDRITE_ETL_DB_USER")
 ETL_DB_PASSWORD: str | None = os.getenv("VENDRITE_ETL_DB_PASSWORD")
@@ -121,6 +131,15 @@ def require_db_env(role: str) -> None:
 
 
 def _database_url(user: str | None, password: str | None) -> URL:
+    # Extra libpq options travel in the URL query string. Building them here
+    # (rather than concatenating a DSN) keeps escaping in SQLAlchemy's hands.
+    query: dict[str, str] = {}
+    if DB_SSLMODE:
+        query["sslmode"] = DB_SSLMODE
+    if DB_SSLROOTCERT:
+        query["sslrootcert"] = DB_SSLROOTCERT
+    if DB_CHANNEL_BINDING:
+        query["channel_binding"] = DB_CHANNEL_BINDING
     return URL.create(
         DB_DRIVER,
         username=user,
@@ -128,6 +147,7 @@ def _database_url(user: str | None, password: str | None) -> URL:
         host=DB_HOST,
         port=DB_PORT,
         database=DB_NAME,
+        query=query,
     )
 
 
