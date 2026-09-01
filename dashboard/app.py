@@ -33,7 +33,7 @@ if _ROOT not in _sys.path:
 
 st.set_page_config(page_title="Vendrite", page_icon="📊", layout="wide")
 
-from dashboard.theme import inject_css
+from dashboard.theme import inject_css, inject_mode_css
 
 inject_css()
 
@@ -48,6 +48,19 @@ st.sidebar.markdown(
     '<div class="vd-wordmark">Vendrite <small>analytics</small></div>',
     unsafe_allow_html=True,
 )
+
+# Presentation mode (default on): hides Plotly's modebar and Streamlit's
+# per-element fullscreen/download chrome so the dashboard reads as a finished
+# product. Turn it off to get the exploration tools back. The value lives in
+# session_state, so it holds while navigating between pages.
+st.sidebar.toggle(
+    "Presentation mode",
+    value=True,
+    key="presentation_mode",
+    help="On: a clean, demo-ready view. Off: Plotly's zoom/pan/download toolbar "
+         "and Streamlit's expand buttons come back for exploring the data.",
+)
+inject_mode_css(st.session_state["presentation_mode"])
 
 # Every page callable is named ``render``; give each an explicit url_path so
 # Streamlit does not collide them.

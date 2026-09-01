@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import plotly.graph_objects as go
 import plotly.io as pio
+import streamlit as st
 
 # ===========================================================================
 # tokens
@@ -65,6 +66,16 @@ GRID = "#212124"             # hairline gridline, barely off the surface
 AXIS_LINE = BORDER
 
 FONT_STACK = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+
+# ---- icons -----------------------------------------------------------------
+# ONE icon set everywhere: Material Symbols Rounded. Two delivery paths, same
+# font — `icon()` / `section()` emit a <span> against the @import'ed face, and
+# Streamlit widget `icon=` params take the ":material/name:" shortcode (which
+# Streamlit renders with the same family). Icons are wayfinding, so they wear
+# TEXT_MUTED / TEXT_SECONDARY — never the accent, which is reserved for things
+# that actually need attention.
+ICON_SM = "16px"
+ICON_MD = "18px"
 
 # ===========================================================================
 # chart palettes
@@ -202,6 +213,7 @@ def pct(x: float, digits: int = 1) -> str:
 _CSS = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap');
 
 :root {{
   --bg-base: {BG_BASE};
@@ -216,8 +228,53 @@ _CSS = f"""
   --accent-hover: {ACCENT_HOVER};
   --accent-quiet: {ACCENT_QUIET};
   --accent-ink: {ACCENT_INK};
+  --ok: {OK};
+  --error: {ERROR};
   --radius: 10px;
+  --icon-sm: {ICON_SM};
+  --icon-md: {ICON_MD};
 }}
+
+/* ---- icons (Material Symbols Rounded) ------------------------------- */
+.vd-icon {{
+  font-family: 'Material Symbols Rounded';
+  font-weight: 400; font-style: normal; line-height: 1;
+  font-size: var(--icon-sm); vertical-align: -3px;
+  color: var(--text-muted); user-select: none;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+}}
+.vd-icon.md {{ font-size: var(--icon-md); vertical-align: -4px; }}
+
+/* ---- section header with icon --------------------------------------- */
+.vd-section {{
+  display: flex; align-items: center; gap: .45rem;
+  font-size: .95rem; font-weight: 600; color: var(--text-primary);
+  letter-spacing: -0.01em; margin: 0 0 .55rem;
+}}
+.vd-section .vd-icon {{ color: var(--text-secondary); }}
+
+/* ---- KPI card (hand-built so the delta can use muted semantics) ----- */
+.vd-kpi {{
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 15px 17px 14px; height: 100%;
+}}
+.vd-kpi-label {{
+  display: flex; align-items: center; gap: .4rem;
+  font-size: .7rem; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: .45rem;
+}}
+.vd-kpi-value {{
+  font-size: 1.85rem; font-weight: 650; color: var(--text-primary);
+  line-height: 1.15; letter-spacing: -0.02em;
+}}
+.vd-kpi-delta {{
+  display: flex; align-items: center; gap: .2rem;
+  font-size: .76rem; font-weight: 500; margin-top: .3rem;
+  color: var(--text-muted); font-variant-numeric: tabular-nums;
+}}
+.vd-kpi-delta .vd-icon {{ font-size: 14px; vertical-align: -2px; }}
+.vd-kpi-delta.up, .vd-kpi-delta.up .vd-icon {{ color: var(--ok); }}
+.vd-kpi-delta.down, .vd-kpi-delta.down .vd-icon {{ color: var(--error); }}
 
 /* ---- base type ------------------------------------------------------- */
 html, body, [class*="st-"], .stMarkdown, button, input, textarea, select {{
@@ -367,6 +424,82 @@ a {{ color: var(--accent); }}
 def inject_css() -> None:
     """Inject the dashboard's stylesheet. Call once, right after
     ``st.set_page_config`` in the entry script."""
-    import streamlit as st
-
     st.markdown(_CSS, unsafe_allow_html=True)
+
+
+# ===========================================================================
+# presentation mode — hide the dev-tool chrome that floats over charts
+# ===========================================================================
+# Streamlit renders its per-element hover toolbar (fullscreen / download /
+# search) into a container it owns. This selector is the one fragile piece of
+# the stylesheet: it is a Streamlit-internal test id, so a future release could
+# rename it. If the expand buttons reappear after a Streamlit upgrade, this is
+# the line to update — everything else here is our own markup.
+_TOOLBAR_SELECTOR = '[data-testid="stElementToolbar"]'
+
+_PRESENTATION_CSS = f"""
+<style>
+{_TOOLBAR_SELECTOR} {{ display: none !important; }}
+</style>
+"""
+
+
+def presentation_mode() -> bool:
+    """True when the sidebar's Presentation-mode toggle is on (the default)."""
+    return bool(st.session_state.get("presentation_mode", True))
+
+
+def inject_mode_css(presentation: bool) -> None:
+    """Inject the presentation-mode-dependent CSS. Call once per run, from the
+    entry script, after the toggle has been rendered."""
+    if presentation:
+        st.markdown(_PRESENTATION_CSS, unsafe_allow_html=True)
+
+
+def plotly_config() -> dict:
+    """Config for every ``st.plotly_chart`` — hides Plotly's floating modebar in
+    presentation mode, keeps the full zoom/pan/download toolbar when it is off."""
+    show = not presentation_mode()
+    return {"displayModeBar": show, "displaylogo": False, "scrollZoom": False}
+
+
+# ===========================================================================
+# small render helpers (the only place icon/KPI markup is written)
+# ===========================================================================
+def icon(name: str, *, size_md: bool = False) -> str:
+    """Inline Material Symbols glyph as an HTML string."""
+    return f'<span class="vd-icon{" md" if size_md else ""}">{name}</span>'
+
+
+def section(title: str, icon_name: str) -> None:
+    """A section header with a leading muted icon."""
+    st.markdown(
+        f'<div class="vd-section">{icon(icon_name, size_md=True)}{title}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def kpi_card(container, *, label: str, icon_name: str, value: str,
+             delta: str | None = None, direction: int = 0) -> None:
+    """Render one KPI card into ``container``.
+
+    ``direction``: +1 up / -1 down / 0 neutral. The arrow is always paired with
+    the number — colour never carries the meaning on its own.
+    """
+    if delta is None:
+        delta_html = ""
+    else:
+        cls = "up" if direction > 0 else "down" if direction < 0 else ""
+        arrow = ""
+        if direction > 0:
+            arrow = icon("arrow_upward")
+        elif direction < 0:
+            arrow = icon("arrow_downward")
+        delta_html = f'<div class="vd-kpi-delta {cls}">{arrow}{delta}</div>'
+    container.markdown(
+        f'<div class="vd-kpi">'
+        f'<div class="vd-kpi-label">{icon(icon_name)}{label}</div>'
+        f'<div class="vd-kpi-value">{value}</div>'
+        f"{delta_html}</div>",
+        unsafe_allow_html=True,
+    )
