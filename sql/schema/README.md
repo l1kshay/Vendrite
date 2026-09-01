@@ -10,6 +10,7 @@ order they must be applied.
 | `03_staging.sql` | `staging.raw_transactions` — raw, unvalidated landing table |
 | `04_analytics.sql` | Star schema: dimensions, `fact_sales`, `customer_segments`, `sales_forecast`, `etl_run_log`, plus all constraints and indexes |
 | `05_clv_cohorts.sql` | `customer_clv` + `cohort_retention` (analytical-depth revamp). **Additive** — `CREATE ... IF NOT EXISTS`, no `DROP`, safe to run against a populated database |
+| `06_forecast_backtest.sql` | `forecast_backtest` — per-model holdout-backtest scores. **Additive**, same as `05` |
 
 ## Applying with `psql`
 
@@ -20,10 +21,12 @@ psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/02_ro
 psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/03_staging.sql
 psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/04_analytics.sql
 psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/05_clv_cohorts.sql
+psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/06_forecast_backtest.sql
 ```
 
-`05_clv_cohorts.sql` is additive and idempotent — run it on its own to add the
-CLV / cohort tables to an existing warehouse without disturbing loaded data.
+`05_clv_cohorts.sql` and `06_forecast_backtest.sql` are additive and idempotent
+— run them on their own to add the revamp tables to an existing warehouse
+without disturbing loaded data.
 
 Create the database first if needed: `createdb -h localhost -U postgres vendrite`.
 

@@ -268,6 +268,30 @@ def load_forecast(engine: Engine, predictions: pd.DataFrame, model_version: str)
     return len(rows)
 
 
+def load_backtest(engine: Engine, backtest_df: pd.DataFrame, horizon_days: int) -> int:
+    """Append the per-model holdout-backtest scores for this run to
+    ``analytics.forecast_backtest`` (all rows share one ``generated_date``)."""
+    md = reflect(engine)
+    tbl = md.tables[f"{settings.ANALYTICS_SCHEMA}.forecast_backtest"]
+    generated = pd.Timestamp.now(tz="UTC").to_pydatetime()
+    rows = [
+        {
+            "generated_date": generated,
+            "model_version": str(row.model),
+            "horizon_days": int(horizon_days),
+            "n_holdout": int(row.n_holdout),
+            "mae": float(row.mae),
+            "rmse": float(row.rmse),
+            "mape_pct": None if pd.isna(row.mape_pct) else float(row.mape_pct),
+        }
+        for row in backtest_df.itertuples(index=False)
+    ]
+    with engine.begin() as conn:
+        conn.execute(tbl.insert(), rows)
+    logger.info("Appended %d rows to forecast_backtest", len(rows))
+    return len(rows)
+
+
 def run(engine: Engine | None = None, horizon_days: int | None = None) -> dict:
     engine = engine or get_engine("etl")
     horizon_days = horizon_days or settings.FORECAST_HORIZON_DAYS
@@ -296,6 +320,7 @@ def run(engine: Engine | None = None, horizon_days: int | None = None) -> dict:
         # --- comparison: holdout backtest --------------------------------
         try:
             bt = backtest(series, horizon_days=horizon_days, seasonal_periods=seasonal_periods)
+            load_backtest(engine, bt, horizon_days)
             comparison: object = bt.to_dict("records")
             winner = str(bt.loc[bt["mae"].idxmin(), "model"])
         except ValueError as exc:
