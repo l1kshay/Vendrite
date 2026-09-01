@@ -170,7 +170,15 @@ def gather_metrics(engine: Engine) -> dict:
                 conn,
             ).to_dict("records")
 
-        fc_gen = _scalar(conn, "SELECT max(generated_date) FROM analytics.sales_forecast")
+        # The pipeline writes several model_versions; the run report tracks the
+        # incumbent linear-regression forecast (the model-vs-model comparison is
+        # a dashboard feature, not a report metric).
+        fc_mv = settings.FORECAST_MODEL_VERSION
+        fc_gen = _scalar(
+            conn,
+            "SELECT max(generated_date) FROM analytics.sales_forecast WHERE model_version = :mv",
+            mv=fc_mv,
+        )
         forecast = None
         if fc_gen is not None:
             row = conn.execute(
@@ -180,10 +188,11 @@ def gather_metrics(engine: Engine) -> dict:
                            max(forecast_date) AS last_date, round(sum(predicted_sales),2) AS total,
                            round(avg(predicted_sales),2) AS avg_daily
                     FROM analytics.sales_forecast
-                    WHERE generated_date = :g GROUP BY model_version
+                    WHERE generated_date = :g AND model_version = :mv
+                    GROUP BY model_version
                     """
                 ),
-                {"g": fc_gen},
+                {"g": fc_gen, "mv": fc_mv},
             ).mappings().first()
             forecast = dict(row) if row else None
             if forecast:

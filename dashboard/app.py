@@ -165,17 +165,25 @@ def load_segments() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_forecast() -> pd.DataFrame:
+def load_forecast(model_version: str | None = None) -> pd.DataFrame:
+    # The pipeline now writes two model_versions per run; this single-page view
+    # shows the incumbent linear-regression forecast. The side-by-side model
+    # comparison lives on the dedicated Forecasting page (multi-page revamp).
+    mv = model_version or settings.FORECAST_MODEL_VERSION
     sql = text(
         """
         SELECT forecast_date, predicted_sales, model_version, generated_date
         FROM analytics.sales_forecast
-        WHERE generated_date = (SELECT max(generated_date) FROM analytics.sales_forecast)
+        WHERE model_version = :mv
+          AND generated_date = (
+              SELECT max(generated_date) FROM analytics.sales_forecast
+              WHERE model_version = :mv
+          )
         ORDER BY forecast_date
         """
     )
     with get_engine().connect() as conn:
-        df = pd.read_sql(sql, conn, parse_dates=["forecast_date", "generated_date"])
+        df = pd.read_sql(sql, conn, params={"mv": mv}, parse_dates=["forecast_date", "generated_date"])
     if not df.empty:
         df["predicted_sales"] = df["predicted_sales"].astype(float)
     return df

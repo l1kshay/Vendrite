@@ -187,9 +187,15 @@ MOCK_CATEGORIES: tuple[str, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Forecasting (Phase 2)
+# Forecasting (Phase 2; second model added in the revamp Phase B)
 # ---------------------------------------------------------------------------
+# Model 1: explainable OLS linear regression (trend + weekday one-hots).
 FORECAST_MODEL_VERSION: str = os.getenv("VENDRITE_FORECAST_MODEL_VERSION", "linreg-v1")
+# Model 2: Holt-Winters triple exponential smoothing (level + trend + season).
+FORECAST_HW_MODEL_VERSION: str = os.getenv("VENDRITE_FORECAST_HW_MODEL_VERSION", "holtwinters-v1")
+# Seasonal period for Holt-Winters: 7 = weekly (the only cycle a ~12-month
+# daily series can support).
+FORECAST_SEASONAL_PERIODS: int = int(os.getenv("VENDRITE_FORECAST_SEASONAL_PERIODS", "7"))
 FORECAST_HORIZON_DAYS: int = int(os.getenv("VENDRITE_FORECAST_HORIZON_DAYS", "30"))
 
 

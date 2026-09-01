@@ -9,10 +9,12 @@ Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 > behind a credential login gate, scheduled GitHub Actions pipeline + templated
 > run report, and a pytest suite. All DB-verified end to end.
 >
-> **Analytical-depth revamp in progress:** Phase A adds heuristic Customer
+> **Analytical-depth revamp in progress:** Phase A added heuristic Customer
 > Lifetime Value (`analytics/clv.py`) and signup-month cohort retention
-> (`analytics/cohorts.py`), each with its own tests. Phases B–D (second
-> forecasting model, multi-page dashboard, visual design pass) follow.
+> (`analytics/cohorts.py`); Phase B added a second forecasting model
+> (Holt-Winters) alongside the linear regression, with a holdout backtest —
+> each with its own tests. Phases C–D (multi-page dashboard, visual design
+> pass) follow.
 
 ---
 
@@ -180,8 +182,8 @@ python -m analytics.clv
 # Signup-month cohort retention → upserts the grid into analytics.cohort_retention
 python -m analytics.cohorts
 
-# Daily-revenue linear-regression forecast → appends N days to
-# analytics.sales_forecast, tagged with VENDRITE_FORECAST_MODEL_VERSION
+# Daily-revenue forecast — runs BOTH models (linreg-v1, holtwinters-v1),
+# appends N days each to analytics.sales_forecast, and backtests them
 python -m analytics.forecasting
 ```
 
@@ -245,12 +247,28 @@ so the grid is always one coherent computation, while earlier days stay as
 history; a plain upsert would strand rows for cohorts that drop out between
 runs.
 
-**Forecasting** — `fact_sales` aggregated to a gap-free daily revenue series;
-an explainable OLS `LinearRegression` on `revenue ~ b0 + b_t·t + Σ b_dow·[weekday]`
-(so `b_t` is the revenue trend per day and the weekday one-hots capture weekly
-shape). Predictions are clipped at 0 and written to `sales_forecast` with
-`model_version` — the table is standalone (no FK to `fact_sales`) so forecast
-versions stay independent.
+**Forecasting** (`analytics/forecasting.py`) — `fact_sales` is aggregated to a
+gap-free daily revenue series, then **two deliberately different models** run,
+each writing its 30-day horizon to `sales_forecast` under its own
+`model_version` (the table has no FK to `fact_sales`, so versions stay
+independent). A holdout backtest scores both.
+
+| | `linreg-v1` — OLS linear regression | `holtwinters-v1` — Holt-Winters exponential smoothing |
+| --- | --- | --- |
+| Model | `revenue ~ b0 + b_t·t + Σ b_dow·[weekday]` | additive level + trend + 7-day season, each updated with decaying weights α/β/γ (optimised by `statsmodels`) |
+| Reads off as | a single trend coefficient + six weekday effects — fully transparent | fitted smoothing weights; no single "trend" number |
+| Trend behaviour | one straight line, extrapolated for ever | re-levels toward recent observations |
+| Seasonality | fixed weekday effects | weekly profile can drift over time |
+| Best when | the trend is genuinely linear and the model must be explained | level / trend / season evolve; enough history per season (≥ 2 cycles) |
+| Weak when | the level shifts, or there's non-linearity / promotions | history is short or noisy (can chase noise if α/γ come out high) |
+
+**Backtest** — hold out the last `VENDRITE_FORECAST_HORIZON_DAYS`, fit each
+model on the earlier data, score MAE / RMSE / MAPE on the holdout;
+`forecast.run()` returns the table and the MAE winner. On the bundled
+synthetic data (near-stationary, no real trend) the two land within a few
+percent — itself a useful result: *the simpler model is the right default
+until the data shows structure Holt-Winters can exploit.* The dashboard's
+Forecasting page shows both lines and this comparison side by side.
 
 ---
 
@@ -405,7 +423,9 @@ silent bugs, plus the forecasting math:
 | --- | --- |
 | `tests/test_clean.py` | whitespace/case standardisation, exact + order-line dedupe, type coercion, region imputation, **total reconciliation** (blank / absurd / consistent / invalid-input cases), quarantine reasons, all star-schema builders, and one end-to-end `transform()` on **deliberately messy input** (dupes, casing, blank & absurd totals, zero qty, negative price, bad date, missing product) |
 | `tests/test_segmentation.py` | `compute_rfm` values, **multi-line orders counting as one order**, analysis-window filtering, quintile direction/bounds + small-sample fallback, the full segment rule table, and end-to-end extremes (clear Champion / Hibernating) |
-| `tests/test_forecasting.py` | gap-filling to a daily series, feature matrix shape, linear-trend recovery, negative-prediction clipping |
+| `tests/test_clv.py` | `observed_tenure_days` (longest of signup / order span, floored), `annualised_frequency` floor, `base_churn_rate` / lifespan clamp, and `compute_clv` reproducing the formula — incl. **messy input** (no signup, zero frequency, signup after snapshot) |
+| `tests/test_cohorts.py` | hand-checked two-cohort grid, tail-trim to observable months, **dropping cohorts that predate the order history**, and messy input (pre-signup orders, missing signup) |
+| `tests/test_forecasting.py` | gap-filling to a daily series, feature-matrix shape, linear-trend recovery, negative clipping; **Holt-Winters** (needs 2 cycles, learns the weekly shape, clips); **backtest** (row per model, known error metrics, Holt-Winters wins on a level shift) |
 
 `.github/workflows/tests.yml` runs `pytest` on every push and PR.
 
