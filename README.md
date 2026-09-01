@@ -347,10 +347,43 @@ or font.
   indicator, hover feedback.
 - **Login** — a centred card on the dark ground with the Vendrite wordmark and a
   single gold button.
+- **Icons — one set, Material Symbols Rounded.** Paired with every KPI label and
+  section header and used in empty/error states. Icons are wayfinding, so they
+  wear `TEXT_MUTED`/`TEXT_SECONDARY`, never the accent. Sizes come from
+  `ICON_SM`/`ICON_MD` tokens rather than per-use values. KPI deltas carry an
+  up/down arrow in the muted `OK`/`ERROR` tokens **beside the number** — colour
+  never carries the meaning alone.
+- **Hover** — custom `hovertemplate` on every chart (currency with symbol and
+  separators, percentages to a sensible precision, readable dates, no raw
+  variable names); `hovermode="x unified"` on the time series so actual and both
+  forecast models read together at one x; hover labels styled from the same
+  tokens. The cohort heatmap shows the raw `N of M customers` behind each cell's
+  colour.
 
-Streamlit limits noted in code: `st.dataframe` is a canvas grid, so large tables
-get the base-dark look + column config rather than restyled headers (the small
-summary tables use `st.table`, which is HTML and fully themed).
+#### Presentation mode
+
+The sidebar has a **Presentation mode** toggle, **on by default**. On, it hides
+Plotly's floating modebar and Streamlit's per-element fullscreen/download chrome
+so the dashboard reads as a finished product rather than a dev tool. Off, the
+zoom/pan/download tools come back for anyone who wants to actually explore the
+data. The choice lives in `st.session_state`, so it holds while navigating
+between pages. It's a deliberate split between a *demo view* and an *exploration
+view* — the polished default shouldn't cost you the analysis tools.
+
+**Streamlit limits, noted honestly (and in code):**
+
+- `st.dataframe` is a canvas grid, so CSS can't restyle its headers — large
+  tables get the base-dark look + column config; the small summary tables use
+  `st.table` (HTML) and are fully themed.
+- Hiding the per-element toolbar relies on `[data-testid="stElementToolbar"]`,
+  a Streamlit-internal id and the **only** framework selector in the stylesheet.
+  A future Streamlit release could rename it; that one line in `theme.py` is
+  what to update if the expand buttons reappear. Everything else targets our own
+  markup.
+- Plotly has no declarative per-point **hover state** — there's no way to change
+  a marker's size/opacity on hover without custom JS, which `st.plotly_chart`
+  doesn't expose. Mark-level "hover feedback" is therefore the tooltip plus a
+  slightly recessive base opacity, not a mark transform.
 
 ### Login gate
 

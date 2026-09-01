@@ -47,7 +47,8 @@ def require_login() -> str:
     if missing:
         st.error(
             "Dashboard authentication is not configured. Set these environment "
-            "variables (see `.env.example`): " + ", ".join(missing)
+            "variables (see `.env.example`): " + ", ".join(missing),
+            icon=":material/gpp_maybe:",
         )
         st.stop()
 
@@ -66,7 +67,7 @@ def require_login() -> str:
             authenticator.login(location="main")
             status = st.session_state.get("authentication_status")
             if status is False:
-                st.error("Incorrect username or password.")
+                st.error("Incorrect username or password.", icon=":material/lock:")
             elif status is None:
                 st.caption("Enter your credentials to continue.")
         if st.session_state.get("authentication_status") is not True:
