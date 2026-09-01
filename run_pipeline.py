@@ -1,8 +1,9 @@
 """
 Full Vendrite pipeline entry point (Phase 4).
 
-Runs, in order:  ETL  ->  RFM segmentation  ->  sales forecast  ->  run-summary
-report. Each stage writes STARTED/SUCCESS/FAILED rows to ``analytics.etl_run_log``
+Runs, in order:  ETL  ->  RFM segmentation  ->  customer lifetime value  ->
+cohort retention  ->  sales forecast  ->  run-summary report. Each stage writes
+STARTED/SUCCESS/FAILED rows to ``analytics.etl_run_log``
 (the report stage is read-only and only logs to stdout). Any stage failure
 propagates, this script exits non-zero, and -- because every stage's ``run``
 already recorded a FAILED row -- the failure is visible both in CI and in the DB.
@@ -38,25 +39,31 @@ def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
 
     # imported here so a plain `--help` needs no DB / heavy deps
-    from analytics import forecasting, segmentation
+    from analytics import clv, cohorts, forecasting, segmentation
     from etl import run_etl
 
     started = time.time()
     summary: dict[str, object] = {}
     try:
-        logger.info("STEP 1/4  ETL")
+        logger.info("STEP 1/6  ETL")
         summary["etl"] = run_etl.run_full(generate=args.generate)
 
-        logger.info("STEP 2/4  RFM segmentation")
+        logger.info("STEP 2/6  RFM segmentation")
         summary["segmentation"] = segmentation.run()
 
-        logger.info("STEP 3/4  sales forecast")
+        logger.info("STEP 3/6  customer lifetime value")
+        summary["clv"] = clv.run()
+
+        logger.info("STEP 4/6  cohort retention")
+        summary["cohorts"] = cohorts.run()
+
+        logger.info("STEP 5/6  sales forecast")
         summary["forecast"] = forecasting.run()
 
         if args.skip_report:
-            logger.info("STEP 4/4  report  (skipped)")
+            logger.info("STEP 6/6  report  (skipped)")
         else:
-            logger.info("STEP 4/4  run-summary report")
+            logger.info("STEP 6/6  run-summary report")
             from reporting import generate_report
 
             paths = generate_report.generate()

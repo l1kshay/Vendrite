@@ -4,10 +4,15 @@ E-commerce sales & customer analytics platform — an ETL pipeline, RFM customer
 segmentation, and short-term demand forecasting, surfaced through an interactive
 Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 
-> **Build status:** All 5 phases complete — ETL → PostgreSQL star schema,
+> **Build status:** Core 5 phases complete — ETL → PostgreSQL star schema,
 > RFM segmentation, linear-regression forecast, Streamlit/Plotly dashboard
 > behind a credential login gate, scheduled GitHub Actions pipeline + templated
 > run report, and a pytest suite. All DB-verified end to end.
+>
+> **Analytical-depth revamp in progress:** Phase A adds heuristic Customer
+> Lifetime Value (`analytics/clv.py`) and signup-month cohort retention
+> (`analytics/cohorts.py`), each with its own tests. Phases B–D (second
+> forecasting model, multi-page dashboard, visual design pass) follow.
 
 ---
 
@@ -61,13 +66,13 @@ environment variables.
 | `etl/` | `generate_mock_data`, `extract`, `clean`, `load`, `run_etl` |
 | `sql/schema/` | numbered DDL + role setup (see `sql/schema/README.md`) |
 | `sql/queries/` | verification / analysis SQL |
-| `analytics/` | `segmentation.py`, `forecasting.py` (Phase 2) |
+| `analytics/` | `segmentation.py`, `forecasting.py` (Phase 2); `clv.py`, `cohorts.py` (revamp Phase A) |
 | `dashboard/` | `app.py` — Streamlit dashboard (Phase 3) |
 | `reporting/` | `generate_report.py` + Jinja2 `templates/` — run-summary report (Phase 4) |
 | `reports/` | generated summary report artifacts, gitignored (Phase 4) |
-| `run_pipeline.py` | one-command orchestrator: ETL → analytics → report (Phase 4) |
+| `run_pipeline.py` | one-command orchestrator: ETL → segmentation → CLV → cohorts → forecast → report |
 | `config/settings.py` | central configuration, env-driven |
-| `tests/` | pytest suite — `test_clean.py`, `test_segmentation.py`, `test_forecasting.py` |
+| `tests/` | pytest suite — `test_clean.py`, `test_segmentation.py`, `test_forecasting.py`, `test_clv.py`, `test_cohorts.py` |
 | `.github/workflows/pipeline.yml` | scheduled ETL→analytics→report pipeline |
 | `.github/workflows/tests.yml` | run `pytest` on every push / PR |
 
@@ -169,6 +174,12 @@ Run after the ETL has populated `analytics.fact_sales`:
 # RFM segmentation → appends one row per customer to analytics.customer_segments
 python -m analytics.segmentation
 
+# Heuristic CLV → appends one row per customer to analytics.customer_clv
+python -m analytics.clv
+
+# Signup-month cohort retention → upserts the grid into analytics.cohort_retention
+python -m analytics.cohorts
+
 # Daily-revenue linear-regression forecast → appends N days to
 # analytics.sales_forecast, tagged with VENDRITE_FORECAST_MODEL_VERSION
 python -m analytics.forecasting
@@ -179,6 +190,37 @@ monetary (total spend) per customer, each scored into 1–5 quintiles, then a
 first-match rule table assigns one of: `Champion`, `Loyal`, `New`, `At Risk`,
 `Hibernating`, `Needs Attention`. `customer_segments` is **append-only** — each
 run adds a new `computed_date` cohort so segment history is preserved.
+
+**Customer Lifetime Value** (`analytics/clv.py`) — a deliberately simple,
+hand-checkable formula, **not** a black-box model:
+
+```
+CLV_i = AOV_i × f_i × L × m
+```
+
+| Term | Meaning | How it's derived |
+| --- | --- | --- |
+| `AOV_i` | average order value | customer's `monetary / frequency` (their own mean spend per distinct order) |
+| `f_i` | annualised purchase frequency | `frequency / (tenure_days / 365.25)`, `tenure_days` floored at `VENDRITE_CLV_MIN_TENURE_DAYS` (30) so a days-old customer doesn't divide by ~0 |
+| `L` | expected lifespan (years) | one global estimate = `1 / churn_rate`, where `churn_rate` = share of customers with recency > `VENDRITE_CLV_CHURN_DAYS` (90); clamped to `[VENDRITE_CLV_LIFESPAN_MIN_YEARS, …MAX_YEARS]` = `[1, 10]` because a ~12-month window can't support wider estimates |
+| `m` | gross margin | flat assumption `VENDRITE_CLV_GROSS_MARGIN` = `0.30` — the source has no COGS, so CLV is profit-based under this one documented constant |
+
+`customer_clv` stores every component, not just `predicted_clv`, so the number
+is auditable. **Deliberate simplifications** (interview material): historical /
+heuristic rather than predictive (no BG/NBD churn model), and no discounting of
+future cash flows — both are natural extensions, left out so every term stays
+verifiable by hand. Customers with no `signup_date` are dropped and logged.
+Pairing CLV with RFM is the point: *high RFM + high CLV* (protect) reads very
+differently from *high RFM + low CLV* (frequent but low-value).
+
+**Cohort retention** (`analytics/cohorts.py`) — customers grouped by
+`signup_date` month; for each cohort, the share still purchasing 0, 1, 2, …
+months later. Only **data-observable** cells are written: a cohort that signed
+up 3 months before the latest order gets `months_since_signup` 0–3, never
+0–`VENDRITE_COHORT_MAX_MONTHS`, so recent cohorts don't show a fake cliff.
+Orders predating a customer's signup (negative offset) are ignored.
+`cohort_retention` is upserted on `(computed_date, cohort_month,
+months_since_signup)`.
 
 **Forecasting** — `fact_sales` aggregated to a gap-free daily revenue series;
 an explainable OLS `LinearRegression` on `revenue ~ b0 + b_t·t + Σ b_dow·[weekday]`
@@ -239,7 +281,7 @@ refuses to load any data.
 ### Full pipeline in one command
 
 ```bash
-python run_pipeline.py --generate      # ETL → segmentation → forecast → report
+python run_pipeline.py --generate      # ETL → segmentation → CLV → cohorts → forecast → report
 python run_pipeline.py --skip-report   # stop after analytics
 ```
 
