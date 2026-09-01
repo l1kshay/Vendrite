@@ -24,6 +24,16 @@ from pathlib import Path
 
 import numpy as np
 
+# --- ensure the project root is importable, however this file is launched ----
+# `python -m etl.generate_mock_data` and pytest put the repo root on sys.path;
+# a bare `python etl/generate_mock_data.py` does not. Add it here.
+import sys as _sys
+
+_ROOT = str(Path(__file__).resolve().parents[1])
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
+# ---------------------------------------------------------------------------
+
 from config import settings
 from etl.extract import REQUIRED_COLUMNS
 

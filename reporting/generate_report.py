@@ -24,6 +24,16 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+# --- ensure the project root is importable, however this file is launched ----
+# `python -m reporting.generate_report` and pytest put the repo root on
+# sys.path; a bare `python reporting/generate_report.py` does not. Add it here.
+import sys as _sys
+
+_ROOT = str(Path(__file__).resolve().parents[1])
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
+# ---------------------------------------------------------------------------
+
 from config import settings
 from etl.load import get_engine
 

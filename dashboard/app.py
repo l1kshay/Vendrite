@@ -29,6 +29,17 @@ import streamlit_authenticator as stauth
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+# --- ensure the project root is importable, however this file is launched ----
+# `python -m ...` and pytest put the repo root on sys.path; Streamlit Community
+# Cloud's launcher does not. Add it before the first-party imports below.
+import sys as _sys
+from pathlib import Path as _Path
+
+_ROOT = str(_Path(__file__).resolve().parents[1])
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
+# ---------------------------------------------------------------------------
+
 from config import settings
 
 st.set_page_config(page_title="Vendrite", page_icon="📊", layout="wide")

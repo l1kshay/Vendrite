@@ -41,6 +41,17 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 
+# --- ensure the project root is importable, however this file is launched ----
+# `python -m ...` and pytest put the repo root on sys.path; a bare
+# `python analytics/segmentation.py` does not. Add it before first-party imports.
+import sys as _sys
+from pathlib import Path as _Path
+
+_ROOT = str(_Path(__file__).resolve().parents[1])
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
+# ---------------------------------------------------------------------------
+
 from config import settings
 from etl.load import get_engine, log_run, reflect
 
