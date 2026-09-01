@@ -11,7 +11,14 @@ import streamlit as st
 
 from config import settings
 from dashboard.data import load_run_log, load_sales
-from dashboard.theme import ACCENT, PLOTLY_TEMPLATE, money
+from dashboard.theme import (
+    ACCENT,
+    PLOTLY_TEMPLATE,
+    kpi_card,
+    money,
+    plotly_config,
+    section,
+)
 
 
 def _sidebar_filters(sales: pd.DataFrame):
@@ -29,6 +36,10 @@ def _sidebar_filters(sales: pd.DataFrame):
     return start, end, cats, regs, pick_cats, pick_regs
 
 
+def _signed_money(v: float) -> str:
+    return f"{'+' if v >= 0 else '−'}${abs(v):,.0f}"
+
+
 def _kpis(df: pd.DataFrame, prev: pd.DataFrame) -> None:
     def agg(frame: pd.DataFrame) -> dict:
         return {
@@ -41,29 +52,38 @@ def _kpis(df: pd.DataFrame, prev: pd.DataFrame) -> None:
 
     cur, pre = agg(df), agg(prev)
     has_prev = prev is not None and len(prev) > 0
+    count = lambda v: f"{'+' if v >= 0 else '−'}{abs(v):,.0f}"  # noqa: E731
     specs = [
-        ("Revenue", money(cur["revenue"]), cur["revenue"] - pre["revenue"], lambda v: money(v)),
-        ("Orders", f"{cur['orders']:,}", cur["orders"] - pre["orders"], lambda v: f"{v:+,}"),
-        ("Units sold", f"{cur['units']:,}", cur["units"] - pre["units"], lambda v: f"{v:+,}"),
-        ("Avg order value", money(cur["aov"]), cur["aov"] - pre["aov"], lambda v: f"{v:+,.0f}"),
-        ("Active customers", f"{cur['customers']:,}", cur["customers"] - pre["customers"], lambda v: f"{v:+,}"),
+        ("Revenue", "payments", money(cur["revenue"]), cur["revenue"] - pre["revenue"], _signed_money),
+        ("Orders", "receipt_long", f"{cur['orders']:,}", cur["orders"] - pre["orders"], count),
+        ("Units sold", "inventory_2", f"{cur['units']:,}", cur["units"] - pre["units"], count),
+        ("Avg order value", "sell", money(cur["aov"]), cur["aov"] - pre["aov"], _signed_money),
+        ("Active customers", "group", f"{cur['customers']:,}", cur["customers"] - pre["customers"], count),
     ]
-    for col, (label, value, delta, fmt) in zip(st.columns(5), specs):
-        col.metric(label, value, fmt(delta) if has_prev else None)
+    for col, (label, ico, value, delta, fmt) in zip(st.columns(5), specs):
+        kpi_card(
+            col, label=label, icon_name=ico, value=value,
+            delta=fmt(delta) if has_prev else None,
+            direction=(0 if not has_prev else (1 if delta > 0 else -1 if delta < 0 else 0)),
+        )
 
 
 def _trend_chart(df: pd.DataFrame, grain: str) -> None:
     freq = {"Daily": "D", "Weekly": "W-MON", "Monthly": "MS"}[grain]
     ts = df.set_index("order_date")["total_amount"].resample(freq).sum().rename("revenue").reset_index()
     fig = px.area(ts, x="order_date", y="revenue", template=PLOTLY_TEMPLATE)
+    fig.update_traces(name="Revenue", hovertemplate="$%{y:,.0f}<extra>Revenue</extra>")
     if grain == "Daily" and len(ts) > 7:
         ts["7-day avg"] = ts["revenue"].rolling(7, min_periods=1).mean()
         # gold emphasis line — the identity accent at a genuine highlight point
         fig.add_scatter(x=ts["order_date"], y=ts["7-day avg"], name="7-day avg",
-                        line=dict(color=ACCENT, width=2))
+                        line=dict(color=ACCENT, width=2),
+                        hovertemplate="$%{y:,.0f}<extra>7-day avg</extra>")
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=320,
-                      yaxis_title="Revenue", xaxis_title=None, showlegend=True)
-    st.plotly_chart(fig, width="stretch")
+                      yaxis_title="Revenue", xaxis_title=None, showlegend=True,
+                      hovermode="x unified")
+    fig.update_xaxes(hoverformat="%b %d, %Y")
+    st.plotly_chart(fig, width="stretch", config=plotly_config())
 
 
 def _category_region(df: pd.DataFrame) -> None:
@@ -71,20 +91,24 @@ def _category_region(df: pd.DataFrame) -> None:
     by_cat = df.groupby("category", as_index=False)["total_amount"].sum().sort_values("total_amount")
     fig1 = px.bar(by_cat, x="total_amount", y="category", orientation="h",
                   template=PLOTLY_TEMPLATE, text_auto=".2s")
+    fig1.update_traces(hovertemplate="<b>%{y}</b><br>Revenue $%{x:,.0f}<extra></extra>")
     fig1.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300, xaxis_title="Revenue", yaxis_title=None)
-    left.subheader("Revenue by category")
-    left.plotly_chart(fig1, width="stretch")
+    with left:
+        section("Revenue by category", "category")
+        st.plotly_chart(fig1, width="stretch", config=plotly_config())
 
     by_reg = df.groupby("region", as_index=False)["total_amount"].sum().sort_values("total_amount")
     fig2 = px.bar(by_reg, x="total_amount", y="region", orientation="h",
                   template=PLOTLY_TEMPLATE, text_auto=".2s")
+    fig2.update_traces(hovertemplate="<b>%{y}</b><br>Revenue $%{x:,.0f}<extra></extra>")
     fig2.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300, xaxis_title="Revenue", yaxis_title=None)
-    right.subheader("Revenue by region")
-    right.plotly_chart(fig2, width="stretch")
+    with right:
+        section("Revenue by region", "public")
+        st.plotly_chart(fig2, width="stretch", config=plotly_config())
 
 
 def _category_drilldown(df: pd.DataFrame) -> None:
-    st.subheader("Category drill-down")
+    section("Category drill-down", "search")
     cats = sorted(df["category"].dropna().unique())
     if not cats:
         return
@@ -93,8 +117,9 @@ def _category_drilldown(df: pd.DataFrame) -> None:
 
     monthly = sub.groupby("month_start", as_index=False)["total_amount"].sum()
     fig = px.bar(monthly, x="month_start", y="total_amount", template=PLOTLY_TEMPLATE)
+    fig.update_traces(hovertemplate="<b>%{x|%b %Y}</b><br>Revenue $%{y:,.0f}<extra></extra>")
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=280, xaxis_title=None, yaxis_title="Revenue")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", config=plotly_config())
 
     top = (
         sub.groupby("product")
@@ -118,11 +143,13 @@ def render() -> None:
             "Could not load data from the analytics warehouse.\n\n"
             f"`{type(exc).__name__}: {exc}`\n\n"
             "Check PostgreSQL is up, the schema is applied, the ETL has run, and "
-            "`.env` has the `VENDRITE_DASHBOARD_DB_*` values."
+            "`.env` has the `VENDRITE_DASHBOARD_DB_*` values.",
+            icon=":material/error:",
         )
         st.stop()
     if sales.empty:
-        st.warning("`analytics.fact_sales` is empty — run `python -m etl.run_etl --generate` first.")
+        st.warning("`analytics.fact_sales` is empty — run `python -m etl.run_etl --generate` first.",
+                   icon=":material/inbox:")
         st.stop()
 
     start, end, cats, regs, pick_cats, pick_regs = _sidebar_filters(sales)
@@ -143,7 +170,7 @@ def render() -> None:
         f"{len(pick_cats)}/{len(cats)} categories · {len(pick_regs)}/{len(regs)} regions"
     )
     if view.empty:
-        st.warning("No sales match the current filters.")
+        st.warning("No sales match the current filters.", icon=":material/filter_alt_off:")
         st.stop()
 
     _kpis(view, prev_view)
@@ -159,7 +186,8 @@ def render() -> None:
     st.write("")
     with st.container(border=True):
         top = st.columns([3, 1])
-        top[0].subheader("Sales trend")
+        with top[0]:
+            section("Sales trend", "show_chart")
         grain = top[1].radio("Grain", ["Daily", "Weekly", "Monthly"], index=1,
                              label_visibility="collapsed")
         _trend_chart(view, grain)

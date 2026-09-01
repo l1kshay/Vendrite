@@ -11,7 +11,15 @@ import streamlit as st
 
 from config import settings
 from dashboard.data import load_backtest, load_forecasts, load_sales
-from dashboard.theme import ACCENT, FORECAST_COLORS, PLOTLY_TEMPLATE, TEXT_MUTED, money
+from dashboard.theme import (
+    ACCENT,
+    FORECAST_COLORS,
+    PLOTLY_TEMPLATE,
+    TEXT_MUTED,
+    money,
+    plotly_config,
+    section,
+)
 
 _NOTES = {
     "linreg-v1": (
@@ -32,10 +40,12 @@ def _forecast_chart(hist: pd.DataFrame, fc: pd.DataFrame) -> None:
     fig = px.line(hist, x="order_date", y="revenue", template=PLOTLY_TEMPLATE)
     fig.data[0].name = "Actual (last 90d)"
     fig.data[0].line.color = FORECAST_COLORS["actual"]
+    fig.data[0].hovertemplate = "$%{y:,.0f}<extra>Actual</extra>"
     for mv, grp in fc.groupby("model_version"):
         fig.add_scatter(
             x=grp["forecast_date"], y=grp["predicted_sales"], name=str(mv),
             line=dict(color=FORECAST_COLORS.get(str(mv), "#7E57C2"), width=2, dash="dash"),
+            hovertemplate="$%{y:,.0f}<extra>" + str(mv) + "</extra>",
         )
     if not hist.empty:
         # the "today" divider between actuals and forecast — the gold accent at
@@ -43,9 +53,12 @@ def _forecast_chart(hist: pd.DataFrame, fc: pd.DataFrame) -> None:
         fig.add_vline(x=hist["order_date"].max(), line_width=1.5, line_color=ACCENT,
                       annotation_text="today", annotation_position="top left",
                       annotation_font=dict(size=10, color=TEXT_MUTED))
+    # unified hover: actual + both models read together at the same x
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=380,
-                      yaxis_title="Revenue", xaxis_title=None, legend_title=None)
-    st.plotly_chart(fig, width="stretch")
+                      yaxis_title="Revenue", xaxis_title=None, legend_title=None,
+                      hovermode="x unified")
+    fig.update_xaxes(hoverformat="%b %d, %Y")
+    st.plotly_chart(fig, width="stretch", config=plotly_config())
 
 
 def render() -> None:
@@ -54,7 +67,8 @@ def render() -> None:
     sales = load_sales()
     forecasts = load_forecasts()
     if sales.empty or forecasts.empty:
-        st.info("No forecast rows yet — run `python -m analytics.forecasting` (or the full pipeline).")
+        st.info("No forecast rows yet — run `python -m analytics.forecasting` (or the full "
+                "pipeline).", icon=":material/inbox:")
         return
 
     horizon = settings.FORECAST_HORIZON_DAYS
@@ -63,17 +77,17 @@ def render() -> None:
         .rename("revenue").reset_index().tail(90)
     )
     with st.container(border=True):
-        st.subheader(f"Actual vs {horizon}-day forecast")
+        section(f"Actual vs {horizon}-day forecast", "insights")
         st.caption(f"Actual daily revenue (last 90 days) vs each model's next {horizon} days.")
         _forecast_chart(hist, forecasts)
 
     st.write("")
     with st.container(border=True):
-        st.subheader("Holdout backtest")
+        section("Holdout backtest", "fact_check")
         bt = load_backtest()
         if bt.empty:
             st.info("No backtest rows — re-run the forecasting step to populate "
-                    "`analytics.forecast_backtest`.")
+                    "`analytics.forecast_backtest`.", icon=":material/inbox:")
         else:
             n = int(bt["n_holdout"].iloc[0])
             st.caption(
@@ -90,18 +104,20 @@ def render() -> None:
             rel = spread / bt["mae"].min() if bt["mae"].min() else 0.0
             if rel < 0.1:
                 st.info(
-                    f"The two are within {rel * 100:.0f}% on MAE — on near-stationary data like "
+                    icon=":material/lightbulb:",
+                    body=f"The two are within {rel * 100:.0f}% on MAE — on near-stationary data like "
                     "this the simpler, explainable model (`linreg-v1`) is the right default. "
                     "Holt-Winters earns its keep once the series shows a trend or level shift "
                     "to exploit."
                 )
             else:
                 st.info(f"`{winner}` has the lower holdout MAE here, by {money(spread)} "
-                        f"({rel * 100:.0f}% of the better score).")
+                        f"({rel * 100:.0f}% of the better score).",
+                        icon=":material/lightbulb:")
 
     st.write("")
     with st.container(border=True):
-        st.subheader("When each model wins")
+        section("When each model wins", "lightbulb")
         c1, c2 = st.columns(2)
         c1.markdown(_NOTES["linreg-v1"])
         c2.markdown(_NOTES["holtwinters-v1"])

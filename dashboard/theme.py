@@ -132,6 +132,13 @@ SEQUENTIAL_AMBER = [
 ]
 SEQUENTIAL_SCALE = SEQUENTIAL_AMBER  # px.imshow / color_continuous_scale accept a hex list
 
+
+def sequential_colorscale() -> list[list]:
+    """The amber ramp as explicit [position, colour] pairs — what
+    ``go.Heatmap`` (unlike Plotly Express) requires."""
+    last = len(SEQUENTIAL_AMBER) - 1
+    return [[i / last, hx] for i, hx in enumerate(SEQUENTIAL_AMBER)]
+
 # Forecast chart: neutral actual + one hue per model (blue↔magenta, CVD ΔE 15.9).
 FORECAST_COLORS = {
     "actual": "#8A8A90",

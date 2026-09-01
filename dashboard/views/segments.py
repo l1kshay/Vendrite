@@ -17,6 +17,8 @@ from dashboard.theme import (
     SEGMENT_ORDER,
     TEXT_MUTED,
     money,
+    plotly_config,
+    section,
 )
 from dashboard.transforms import assign_quadrants, quadrant_summary, rfm_clv_frame
 
@@ -28,10 +30,11 @@ def _distribution(seg) -> None:
     )
     fig = px.bar(counts, x="customers", y="segment", orientation="h", template=PLOTLY_TEMPLATE,
                  color="segment", color_discrete_map=SEGMENT_COLORS, text="customers")
+    fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,} customers<extra></extra>")
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=280, showlegend=False,
                       xaxis_title="Customers", yaxis_title=None,
                       yaxis=dict(categoryorder="array", categoryarray=SEGMENT_ORDER[::-1]))
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", config=plotly_config())
 
 
 def _rfm_profile(seg):
@@ -64,10 +67,20 @@ def _quadrant_scatter(rc) -> None:
         rc, x="rfm_score", y="predicted_clv", color="segment_label",
         category_orders={"segment_label": SEGMENT_ORDER},
         color_discrete_map=SEGMENT_COLORS, template=PLOTLY_TEMPLATE,
-        hover_data=["customer", "segment_label", "monetary", "purchase_freq_annual"],
+        custom_data=["customer", "segment_label", "rfm_score", "predicted_clv",
+                     "monetary", "purchase_freq_annual"],
         log_y=True, opacity=0.8,
     )
-    fig.update_traces(marker=dict(size=7, line=dict(width=0)))
+    fig.update_traces(
+        marker=dict(size=7, line=dict(width=0)),
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>"
+            "RFM score %{customdata[2]:.2f}<br>"
+            "Predicted CLV $%{customdata[3]:,.0f}<br>"
+            "Lifetime spend $%{customdata[4]:,.0f}<br>"
+            "%{customdata[5]:.1f} orders / yr<extra></extra>"
+        ),
+    )
     fig.add_vline(x=r_cut, line_width=1, line_dash="dot", line_color=BORDER_STRONG)
     fig.add_hline(y=c_cut, line_width=1, line_dash="dot", line_color=BORDER_STRONG)
     for x, y, txt in _CORNERS:
@@ -77,7 +90,7 @@ def _quadrant_scatter(rc) -> None:
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=420,
                       xaxis_title="RFM score (recent engagement)",
                       yaxis_title="Predicted CLV (log)", legend_title=None)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", config=plotly_config())
 
 
 def render() -> None:
@@ -87,7 +100,8 @@ def render() -> None:
     clv = load_clv()
     if seg.empty or clv.empty:
         st.info("No segmentation / CLV rows yet — run `python -m analytics.segmentation` "
-                "and `python -m analytics.clv` (or the full pipeline).")
+                "and `python -m analytics.clv` (or the full pipeline).",
+                icon=":material/inbox:")
         return
 
     cohort = seg["computed_date"].max().date()
@@ -98,11 +112,11 @@ def render() -> None:
     left, right = st.columns([2, 3])
     with left:
         with st.container(border=True):
-            st.subheader("RFM segment mix")
+            section("RFM segment mix", "bar_chart")
             _distribution(seg)
     with right:
         with st.container(border=True):
-            st.subheader("RFM profile by segment")
+            section("RFM profile by segment", "table_rows")
             st.table(_rfm_profile(seg))
             st.caption("Recency in days (lower is better), frequency in orders, monetary in $ — "
                        "the averages the segment rules act on.")
@@ -110,7 +124,7 @@ def render() -> None:
     st.write("")
     rc = assign_quadrants(rfm_clv_frame(seg, clv))
     with st.container(border=True):
-        st.subheader("RFM engagement vs projected value")
+        section("RFM engagement vs projected value", "scatter_plot")
         _quadrant_scatter(rc)
         st.caption(
             "Dotted lines are the medians of each axis. **Protect** (top-right) are high on both "
@@ -128,7 +142,7 @@ def render() -> None:
         )
 
     st.write("")
-    st.subheader("Drill in")
+    section("Drill in", "search")
     by = st.radio("Group by", ["Quadrant", "RFM segment"], horizontal=True)
     if by == "Quadrant":
         pick = st.selectbox("Quadrant", QUADRANT_ORDER, index=0)
