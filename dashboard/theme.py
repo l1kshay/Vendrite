@@ -1,28 +1,105 @@
 """
-Shared presentation constants for the dashboard.
+The single styling seam for the dashboard (Phase D visual design pass).
 
-Phase C keeps styling minimal (the visual-design pass is Phase D); this module
-is the single seam those changes will land in -- palette, Plotly template,
-segment ordering/colours, and small formatting helpers all live here so the
-view modules never hard-code a colour.
+Everything visual is a **named token** here — surfaces, borders, the text
+tiers, the one accent, the muted semantic colours, the Plotly template, and
+the CSS. No view module hard-codes a colour or a font; they import from this
+file. `.streamlit/config.toml` mirrors the framework-level values so Streamlit's
+own chrome matches rather than fights the injected CSS.
+
+Aesthetic target: a modern dark-mode developer-console dashboard — a layered
+near-black foundation (page → elevated card → inset), depth from three surface
+tiers plus 1px borders (not drop shadows), one warm accent used sparingly, and
+a clear typographic scale in Inter.
+
+Accent choice — warm gold `#E8B23A`. Retail analytics is about revenue and
+customer value, and gold is the universal commercial signal (price, premium,
+loyalty tiers). A warm accent against cool-neutral dark surfaces is what
+creates the sense of depth, and it is deliberately not Neon's green so the
+result reads as Vendrite's own. It is reserved for: the active nav item, the
+primary button, a single highlighted value, and the "current"/emphasis line in
+a chart — never a regular data series. The one risk (gold vs. an amber warning
+state) is handled the data-viz way: status colours always carry an icon + word,
+never colour alone.
+
+The categorical chart palette is the data-viz skill's validated dark colorway
+(cool-neutral), kept unchanged — its slot order is the CVD-safety mechanism and
+was re-validated against this surface (`#161618`, all checks pass). Data colours
+and the UI accent are intentionally separate channels; the gold identity
+carries through charts only at genuine highlight points.
 """
 
 from __future__ import annotations
 
-PLOTLY_TEMPLATE = "plotly_white"
+import plotly.graph_objects as go
+import plotly.io as pio
 
-# Segment vocabulary (must match analytics/segmentation.SEGMENT_LABELS order).
+# ===========================================================================
+# tokens
+# ===========================================================================
+# ---- surfaces: three-tier dark foundation --------------------------------
+BG_BASE = "#0B0B0C"          # page background (near-black, faint cool cast)
+BG_ELEVATED = "#161618"      # card / panel / chart surface
+BG_INSET = "#1F1F22"         # nested: table header, inputs, hovered nav row
+BORDER = "#282829"           # 1px card edges
+BORDER_STRONG = "#37373A"    # hover / focus ring
+
+# ---- text tiers (never pure white on pure black) -----------------------
+TEXT_PRIMARY = "#EDEDED"     # headings, KPI values          (15.4:1 on card)
+TEXT_SECONDARY = "#A1A1A6"   # labels, body, secondary text  (7.0:1)
+TEXT_MUTED = "#78787F"       # captions, metadata            (3.9:1)
+
+# ---- accent: warm gold (see module docstring for the reasoning) --------
+ACCENT = "#E8B23A"
+ACCENT_HOVER = "#F2C25C"
+ACCENT_QUIET = "#2A2213"     # accent-tinted background for the active nav item
+ACCENT_INK = "#0B0B0C"       # text/icon colour to sit ON the accent (10.2:1)
+
+# ---- semantic: muted + desaturated, always shipped with an icon+word --
+OK = "#5F9E6A"
+WARN = "#B98A3C"
+ERROR = "#C7625C"
+
+# ---- chart chrome ----------------------------------------------------------
+GRID = "#212124"             # hairline gridline, barely off the surface
+AXIS_LINE = BORDER
+
+FONT_STACK = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+
+# ===========================================================================
+# chart palettes
+# ===========================================================================
+# Data-viz skill's validated dark categorical colorway — DO NOT reorder (the
+# order is the colour-vision-deficiency safety mechanism). Re-validated on the
+# #161618 surface: all checks pass, worst adjacent CVD ΔE 8.4.
+CATEGORICAL = [
+    "#3987e5",  # blue
+    "#d95926",  # burnt orange
+    "#199e70",  # deep aqua
+    "#c98500",  # amber
+    "#d55181",  # magenta
+    "#008300",  # green
+    "#9085e9",  # violet
+    "#e66767",  # red
+]
+
+# Segment vocabulary (order must match analytics/segmentation.SEGMENT_LABELS).
+# Kept semantic — a Champion→Hibernating health gradient — restated in muted
+# dark-theme tones. Always rendered with a legend / labels, never colour-alone.
 SEGMENT_ORDER = ["Champion", "Loyal", "New", "At Risk", "Hibernating", "Needs Attention"]
 SEGMENT_COLORS = {
-    "Champion": "#2E7D32",
-    "Loyal": "#66BB6A",
-    "New": "#42A5F5",
-    "At Risk": "#EF6C00",
-    "Hibernating": "#9E9E9E",
-    "Needs Attention": "#C62828",
+    "Champion": "#4E9E5F",        # muted green — best
+    "Loyal": "#6FB98A",           # lighter muted green
+    "New": "#3987e5",             # blue — fresh
+    "At Risk": "#B98A3C",         # muted amber — caution
+    "Hibernating": "#6B6B70",     # muted grey — dormant
+    "Needs Attention": "#C7625C", # muted red — worst
 }
 
-# RFM x CLV quadrant labels + colours (Phase C combined view).
+# RFM × CLV quadrants. On the scatter these are shown by position (median
+# crosshair) + corner labels, not a colour axis — four categorical hues cannot
+# clear the scatter all-pairs CVD gate. These colours are only the swatches in
+# the quadrant summary table.
 QUADRANT_ORDER = [
     "Protect (high RFM, high CLV)",
     "Win back (low RFM, high CLV)",
@@ -30,24 +107,233 @@ QUADRANT_ORDER = [
     "Low priority (low RFM, low CLV)",
 ]
 QUADRANT_COLORS = {
-    QUADRANT_ORDER[0]: "#2E7D32",
-    QUADRANT_ORDER[1]: "#EF6C00",
-    QUADRANT_ORDER[2]: "#42A5F5",
-    QUADRANT_ORDER[3]: "#9E9E9E",
+    QUADRANT_ORDER[0]: OK,          # protect — good
+    QUADRANT_ORDER[1]: WARN,        # win back — caution
+    QUADRANT_ORDER[2]: "#3987e5",   # upsell — neutral blue
+    QUADRANT_ORDER[3]: "#6B6B70",   # low priority — de-emphasised grey
 }
 
-SEQUENTIAL_SCALE = "Blues"  # cohort heatmap
+# Sequential single hue for the cohort heatmap: an amber ramp (ties the heat to
+# the accent hue), dark→light, lightness-monotonic. Brighter = higher retention.
+SEQUENTIAL_AMBER = [
+    "#171207", "#332810", "#54401a", "#7c5f26",
+    "#a67f38", "#cf9f4d", "#e6c37e", "#f3ddad",
+]
+SEQUENTIAL_SCALE = SEQUENTIAL_AMBER  # px.imshow / color_continuous_scale accept a hex list
 
+# Forecast chart: neutral actual + one hue per model (blue↔magenta, CVD ΔE 15.9).
 FORECAST_COLORS = {
-    "actual": "#90A4AE",
-    "linreg-v1": "#1565C0",
-    "holtwinters-v1": "#C62828",
+    "actual": "#8A8A90",
+    "linreg-v1": "#3987e5",
+    "holtwinters-v1": "#d55181",
 }
 
 
+# ===========================================================================
+# Plotly template
+# ===========================================================================
+def _axis(show_grid: bool) -> dict:
+    return dict(
+        showgrid=show_grid,
+        gridcolor=GRID,
+        gridwidth=1,
+        zeroline=False,
+        showline=True,
+        linecolor=AXIS_LINE,
+        linewidth=1,
+        ticks="",
+        tickfont=dict(color=TEXT_MUTED, size=11, family=FONT_STACK),
+        title=dict(font=dict(color=TEXT_SECONDARY, size=12, family=FONT_STACK)),
+        automargin=True,
+    )
+
+
+def _template() -> go.layout.Template:
+    ramp = [[i / (len(SEQUENTIAL_AMBER) - 1), hx] for i, hx in enumerate(SEQUENTIAL_AMBER)]
+    return go.layout.Template(
+        layout=dict(
+            paper_bgcolor=BG_ELEVATED,
+            plot_bgcolor=BG_ELEVATED,
+            font=dict(family=FONT_STACK, size=12, color=TEXT_SECONDARY),
+            title=dict(font=dict(family=FONT_STACK, size=15, color=TEXT_PRIMARY), x=0),
+            colorway=CATEGORICAL,
+            xaxis=_axis(show_grid=False),
+            yaxis=_axis(show_grid=True),
+            legend=dict(
+                bgcolor="rgba(0,0,0,0)",
+                bordercolor="rgba(0,0,0,0)",
+                font=dict(family=FONT_STACK, color=TEXT_SECONDARY, size=11),
+            ),
+            colorscale=dict(sequential=ramp),
+            coloraxis=dict(colorbar=dict(
+                outlinewidth=0,
+                tickfont=dict(color=TEXT_MUTED, size=11, family=FONT_STACK),
+                title=dict(font=dict(color=TEXT_SECONDARY, size=12, family=FONT_STACK)),
+            )),
+            hoverlabel=dict(
+                bgcolor=BG_INSET,
+                bordercolor=BORDER,
+                font=dict(family=FONT_STACK, color=TEXT_PRIMARY, size=12),
+            ),
+            margin=dict(l=8, r=8, t=30, b=8),
+        )
+    )
+
+
+PLOTLY_TEMPLATE = "vendrite_dark"
+pio.templates[PLOTLY_TEMPLATE] = _template()
+pio.templates.default = PLOTLY_TEMPLATE
+
+
+# ===========================================================================
+# formatting helpers
+# ===========================================================================
 def money(x: float) -> str:
     return f"${x:,.0f}"
 
 
 def pct(x: float, digits: int = 1) -> str:
     return f"{x * 100:.{digits}f}%"
+
+
+# ===========================================================================
+# CSS — one injection, called once from app.py after set_page_config
+# ===========================================================================
+_CSS = f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {{
+  --bg-base: {BG_BASE};
+  --bg-elevated: {BG_ELEVATED};
+  --bg-inset: {BG_INSET};
+  --border: {BORDER};
+  --border-strong: {BORDER_STRONG};
+  --text-primary: {TEXT_PRIMARY};
+  --text-secondary: {TEXT_SECONDARY};
+  --text-muted: {TEXT_MUTED};
+  --accent: {ACCENT};
+  --accent-hover: {ACCENT_HOVER};
+  --accent-quiet: {ACCENT_QUIET};
+  --accent-ink: {ACCENT_INK};
+  --radius: 10px;
+}}
+
+/* ---- base type ------------------------------------------------------- */
+html, body, [class*="st-"], .stMarkdown, button, input, textarea, select {{
+  font-family: {FONT_STACK};
+}}
+.stApp {{ background: var(--bg-base); }}
+.block-container {{ padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1400px; }}
+
+h1, h2, h3 {{ color: var(--text-primary); letter-spacing: -0.015em; line-height: 1.3; }}
+h1 {{ font-size: 1.75rem; font-weight: 600; margin-bottom: .1rem; }}
+h2 {{ font-size: 1.15rem; font-weight: 600; }}
+h3 {{ font-size: .95rem; font-weight: 600; }}
+[data-testid="stCaptionContainer"], .stCaption, small {{
+  color: var(--text-muted); font-size: .8rem; line-height: 1.5;
+}}
+p, li, .stMarkdown {{ color: var(--text-secondary); line-height: 1.55; }}
+hr {{ border-color: var(--border); margin: 1.1rem 0; }}
+a {{ color: var(--accent); }}
+
+/* ---- KPI cards (st.metric styled as a card) ------------------------- */
+[data-testid="stMetric"] {{
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}}
+[data-testid="stMetricLabel"] p {{
+  font-size: .7rem; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-muted);
+}}
+[data-testid="stMetricValue"] {{
+  font-size: 1.9rem; font-weight: 650; color: var(--text-primary);
+  font-variant-numeric: normal;
+}}
+[data-testid="stMetricDelta"] {{ font-size: .78rem; font-weight: 500; }}
+
+/* ---- generic bordered container = card ----------------------------- */
+[data-testid="stVerticalBlockBorderWrapper"] {{
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}}
+
+/* ---- expander --------------------------------------------------------- */
+[data-testid="stExpander"] details {{
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}}
+[data-testid="stExpander"] summary {{ color: var(--text-secondary); }}
+
+/* ---- sidebar: product nav ----------------------------------------- */
+[data-testid="stSidebar"] {{ background: var(--bg-base); border-right: 1px solid var(--border); }}
+[data-testid="stSidebar"] .block-container {{ padding-top: 1.4rem; }}
+[data-testid="stSidebarNav"] {{ padding-top: .3rem; }}
+[data-testid="stSidebarNav"] > div > div {{ /* section header */
+  font-size: .68rem; font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--text-muted);
+  padding: .5rem .25rem .25rem;
+}}
+[data-testid="stSidebarNav"] a {{
+  border-radius: 8px; color: var(--text-secondary);
+  padding: .4rem .55rem; transition: background .12s ease, color .12s ease;
+}}
+[data-testid="stSidebarNav"] a:hover {{ background: var(--bg-inset); color: var(--text-primary); }}
+[data-testid="stSidebarNav"] a[aria-current="page"] {{
+  background: var(--accent-quiet);
+  color: var(--text-primary);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}}
+[data-testid="stSidebarNav"] a[aria-current="page"] span {{ color: var(--text-primary); }}
+
+/* ---- buttons ------------------------------------------------------- */
+.stButton > button, .stDownloadButton > button {{
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-inset); color: var(--text-secondary);
+  font-weight: 500; transition: border-color .12s ease, color .12s ease;
+}}
+.stButton > button:hover, .stDownloadButton > button:hover {{
+  border-color: var(--border-strong); color: var(--text-primary);
+}}
+.stButton > button[kind="primary"], .stButton > button[data-testid="stBaseButton-primary"] {{
+  background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+}}
+.stButton > button[kind="primary"]:hover {{ background: var(--accent-hover); border-color: var(--accent-hover); }}
+
+/* ---- inputs ------------------------------------------------------- */
+[data-baseweb="input"], [data-baseweb="select"] > div, .stTextInput input,
+.stDateInput input, [data-baseweb="popover"] {{
+  background: var(--bg-inset) !important; border-color: var(--border) !important;
+}}
+.stTextInput input, .stDateInput input {{ color: var(--text-primary); }}
+
+/* ---- dataframes / tables --------------------------------------------- */
+[data-testid="stDataFrame"] {{ border: 1px solid var(--border); border-radius: var(--radius); }}
+[data-testid="stTable"] table {{ border: none; }}
+[data-testid="stTable"] thead th {{
+  background: var(--bg-inset); color: var(--text-muted);
+  font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border); text-align: left;
+}}
+[data-testid="stTable"] tbody td {{
+  color: var(--text-secondary); border-color: var(--border);
+  font-variant-numeric: tabular-nums;
+}}
+[data-testid="stTable"] tbody tr:hover td {{ background: var(--bg-inset); }}
+
+/* ---- radio / segmented controls as quiet pills --------------------- */
+[data-testid="stRadio"] label {{ color: var(--text-secondary); }}
+</style>
+"""
+
+
+def inject_css() -> None:
+    """Inject the dashboard's stylesheet. Call once, right after
+    ``st.set_page_config`` in the entry script."""
+    import streamlit as st
+
+    st.markdown(_CSS, unsafe_allow_html=True)

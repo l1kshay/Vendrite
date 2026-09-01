@@ -33,6 +33,10 @@ if _ROOT not in _sys.path:
 
 st.set_page_config(page_title="Vendrite", page_icon="📊", layout="wide")
 
+from dashboard.theme import inject_css
+
+inject_css()
+
 from dashboard.auth import require_login
 from dashboard.views import forecasting_view, overview, retention, segments
 
