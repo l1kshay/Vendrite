@@ -44,8 +44,10 @@ from dashboard.views import forecasting_view, overview, retention, segments
 # Streamlit executes this file top-to-bottom on every rerun, so the app body
 # runs at module scope (no __main__ guard -- that is the Streamlit convention).
 require_login()
-st.sidebar.title("📊 Vendrite")
-st.sidebar.caption("Sales & customer analytics")
+st.sidebar.markdown(
+    '<div class="vd-wordmark">Vendrite <small>analytics</small></div>',
+    unsafe_allow_html=True,
+)
 
 # Every page callable is named ``render``; give each an explicit url_path so
 # Streamlit does not collide them.

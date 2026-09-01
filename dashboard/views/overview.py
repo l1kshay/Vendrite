@@ -11,7 +11,7 @@ import streamlit as st
 
 from config import settings
 from dashboard.data import load_run_log, load_sales
-from dashboard.theme import PLOTLY_TEMPLATE, money
+from dashboard.theme import ACCENT, PLOTLY_TEMPLATE, money
 
 
 def _sidebar_filters(sales: pd.DataFrame):
@@ -58,8 +58,9 @@ def _trend_chart(df: pd.DataFrame, grain: str) -> None:
     fig = px.area(ts, x="order_date", y="revenue", template=PLOTLY_TEMPLATE)
     if grain == "Daily" and len(ts) > 7:
         ts["7-day avg"] = ts["revenue"].rolling(7, min_periods=1).mean()
+        # gold emphasis line — the identity accent at a genuine highlight point
         fig.add_scatter(x=ts["order_date"], y=ts["7-day avg"], name="7-day avg",
-                        line=dict(color="#1A237E", width=2))
+                        line=dict(color=ACCENT, width=2))
     fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=320,
                       yaxis_title="Revenue", xaxis_title=None, showlegend=True)
     st.plotly_chart(fig, width="stretch")
@@ -76,7 +77,7 @@ def _category_region(df: pd.DataFrame) -> None:
 
     by_reg = df.groupby("region", as_index=False)["total_amount"].sum().sort_values("total_amount")
     fig2 = px.bar(by_reg, x="total_amount", y="region", orientation="h",
-                  template=PLOTLY_TEMPLATE, text_auto=".2s", color_discrete_sequence=["#42A5F5"])
+                  template=PLOTLY_TEMPLATE, text_auto=".2s")
     fig2.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=300, xaxis_title="Revenue", yaxis_title=None)
     right.subheader("Revenue by region")
     right.plotly_chart(fig2, width="stretch")
@@ -154,23 +155,28 @@ def render() -> None:
             f"Revenue is {money(rev_now)} over {span.days} days — "
             f"{'up' if chg >= 0 else 'down'} {abs(chg) * 100:.1f}% vs the preceding {span.days} days."
         )
-    st.divider()
 
-    grain = st.radio("Trend grain", ["Daily", "Weekly", "Monthly"], horizontal=True, index=1)
-    st.subheader("Sales trend")
-    _trend_chart(view, grain)
-    st.caption(
-        "Weekly grain smooths day-of-week noise; on the daily view the navy line is a 7-day "
-        "moving average — watch that, not the spiky raw series, for the underlying direction."
-    )
-    st.divider()
+    st.write("")
+    with st.container(border=True):
+        top = st.columns([3, 1])
+        top[0].subheader("Sales trend")
+        grain = top[1].radio("Grain", ["Daily", "Weekly", "Monthly"], index=1,
+                             label_visibility="collapsed")
+        _trend_chart(view, grain)
+        st.caption(
+            "Weekly grain smooths day-of-week noise; on the daily view the gold line is a 7-day "
+            "moving average — read that, not the spiky raw series, for the underlying direction."
+        )
 
-    _category_region(view)
-    st.caption("Where the revenue concentrates. A category or region carrying most of the total is "
-               "both the growth lever and the concentration risk.")
-    st.divider()
+    st.write("")
+    with st.container(border=True):
+        _category_region(view)
+        st.caption("Where the revenue concentrates. A category or region carrying most of the "
+                   "total is both the growth lever and the concentration risk.")
 
-    _category_drilldown(view)
+    st.write("")
+    with st.container(border=True):
+        _category_drilldown(view)
 
     with st.expander("Pipeline status"):
         st.dataframe(load_run_log(), width="stretch", height=240)

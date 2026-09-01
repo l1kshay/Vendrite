@@ -327,6 +327,24 @@ a {{ color: var(--accent); }}
 
 /* ---- radio / segmented controls as quiet pills --------------------- */
 [data-testid="stRadio"] label {{ color: var(--text-secondary); }}
+
+/* ---- Vendrite wordmark (sidebar + login) --------------------------- */
+.vd-wordmark {{
+  font-weight: 650; font-size: 1.05rem; letter-spacing: -0.01em;
+  color: var(--text-primary); display: flex; align-items: center; gap: .5rem;
+  padding: .1rem .25rem .2rem;
+}}
+.vd-wordmark::before {{ content: "\\25C6"; color: var(--accent); font-size: .9rem; }}
+.vd-wordmark small {{
+  color: var(--text-muted); font-weight: 500; font-size: .72rem;
+  letter-spacing: .04em; text-transform: uppercase;
+}}
+
+/* ---- login card --------------------------------------------------- */
+.vd-login-head {{ text-align: center; margin: 2.5rem 0 .35rem; }}
+.vd-login-head .vd-wordmark {{ justify-content: center; font-size: 1.5rem; }}
+.vd-login-head .vd-wordmark::before {{ font-size: 1.2rem; }}
+.vd-login-sub {{ text-align: center; color: var(--text-muted); font-size: .82rem; margin-bottom: 1.2rem; }}
 </style>
 """
 
