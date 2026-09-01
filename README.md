@@ -13,8 +13,10 @@ Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 > Lifetime Value (`analytics/clv.py`) and signup-month cohort retention
 > (`analytics/cohorts.py`); Phase B added a second forecasting model
 > (Holt-Winters) alongside the linear regression, with a holdout backtest —
-> each with its own tests. Phases C–D (multi-page dashboard, visual design
-> pass) follow.
+> each with its own tests. Phase C restructured the dashboard into a four-page
+> `st.navigation` app (Overview / Segments & CLV / Retention / Forecasting)
+> with a shared data/transforms/theme layer. Phase D (visual design pass)
+> follows.
 
 ---
 
@@ -69,12 +71,12 @@ environment variables.
 | `sql/schema/` | numbered DDL + role setup (see `sql/schema/README.md`) |
 | `sql/queries/` | verification / analysis SQL |
 | `analytics/` | `segmentation.py`, `forecasting.py` (Phase 2); `clv.py`, `cohorts.py` (revamp Phase A) |
-| `dashboard/` | `app.py` — Streamlit dashboard (Phase 3) |
+| `dashboard/` | multi-page Streamlit app — `app.py` (entry), `auth.py`, `data.py`, `transforms.py`, `theme.py`, `views/` |
 | `reporting/` | `generate_report.py` + Jinja2 `templates/` — run-summary report (Phase 4) |
 | `reports/` | generated summary report artifacts, gitignored (Phase 4) |
 | `run_pipeline.py` | one-command orchestrator: ETL → segmentation → CLV → cohorts → forecast → report |
 | `config/settings.py` | central configuration, env-driven |
-| `tests/` | pytest suite — `test_clean.py`, `test_segmentation.py`, `test_forecasting.py`, `test_clv.py`, `test_cohorts.py` |
+| `tests/` | pytest suite — `test_clean.py`, `test_segmentation.py`, `test_forecasting.py`, `test_clv.py`, `test_cohorts.py`, `test_dashboard_transforms.py` |
 | `.github/workflows/pipeline.yml` | scheduled ETL→analytics→report pipeline |
 | `.github/workflows/tests.yml` | run `pytest` on every push / PR |
 
@@ -278,28 +280,45 @@ Forecasting page shows both lines and this comparison side by side.
 streamlit run dashboard/app.py
 ```
 
-`dashboard/app.py` connects with the **read-only `vendrite_dashboard` role** and
-reads only the `analytics` schema (all SQL is parameterised `sqlalchemy.text`;
-sidebar filtering is pure in-memory pandas). It performs no ETL/analytics logic —
-just renders the materialised results. Contents:
+A **multi-page** `st.navigation` app. The entry script `dashboard/app.py`
+configures the page, runs the login gate once, then routes to one of four
+pages. It connects with the **read-only `vendrite_dashboard` role** and reads
+only the `analytics` schema; it performs no ETL/analytics logic. Module layout:
 
-- **Sidebar filters** — date range, category, region. All charts and KPIs react.
-- **KPI cards** — revenue, orders, units, average order value, active customers,
-  each with a delta vs the equal-length preceding period.
-- **Sales trend** — Plotly area chart with a Daily / Weekly / Monthly toggle and
-  a 7-day rolling average.
-- **Forecast** — last 90 days actual vs the `sales_forecast` horizon (dashed),
-  split by a marker at the last actual day.
-- **Revenue by category / region** — horizontal bar charts.
-- **Customer segments (RFM)** — segment distribution bar, an avg-R/F/M profile
-  table, and a **drill-down**: pick a segment → its customer list (with CSV
-  download).
-- **Category drill-down** — pick a category → monthly revenue + top-10 products.
-- **Pipeline status** — the recent `etl_run_log` rows.
+| Module | Role |
+| --- | --- |
+| `dashboard/app.py` | entry: `set_page_config` → auth → `st.navigation` |
+| `dashboard/auth.py` | the `streamlit-authenticator` login gate |
+| `dashboard/data.py` | **all** DB access — parameterised `text()`, `@st.cache_data` |
+| `dashboard/transforms.py` | pure reshaping (RFM×CLV quadrants, cohort matrix) — unit-tested |
+| `dashboard/theme.py` | palette / Plotly template / formatting (the seam for the Phase D design pass) |
+| `dashboard/views/` | one `render()` per page |
+
+**Pages**
+
+- **Overview** — sidebar date/category/region filters; 5 KPI cards with
+  prior-period deltas; sales trend (Daily/Weekly/Monthly + 7-day average);
+  revenue by category/region; a category drill-down; a `Pipeline status`
+  expander. Each visual carries a one-line read.
+- **Segments & CLV** — the RFM segment mix and per-segment R/F/M profile, then
+  the combined view: a scatter of **RFM score** (recent engagement) vs
+  **predicted CLV** (projected value, log axis), split at each median into four
+  quadrants — *Protect*, *Win back*, *Upsell*, *Low priority* — with a summary
+  table and a quadrant/segment drill-down + CSV. The narrative: CLV annualises
+  frequency, so it rewards current velocity where RFM's monetary score rewards
+  cumulative spend, which is why the two disagree off-diagonal.
+- **Retention** — the signup-month cohort **heatmap** (rows = cohort, columns =
+  months since signup, cells = retention %, sized labels) and the average
+  retention curve, each with an interpretation of what the shape means.
+- **Forecasting** — actual (last 90d) vs both models' horizons on one chart;
+  the **holdout backtest** table (MAE/RMSE/MAPE per model, read from
+  `analytics.forecast_backtest`); a plain-language verdict; and a
+  "when each model wins" side-by-side.
 
 ### Login gate
 
-`main()` is guarded by a `streamlit-authenticator` credential login. Credentials
+The entry script is guarded by a `streamlit-authenticator` credential login before
+`st.navigation` runs, so every page is behind it. Credentials
 come **only** from `VENDRITE_AUTH_*` environment variables (see `.env.example`)
 and the password is stored as a **bcrypt hash**, never plaintext. To provision:
 
@@ -425,6 +444,7 @@ silent bugs, plus the forecasting math:
 | `tests/test_segmentation.py` | `compute_rfm` values, **multi-line orders counting as one order**, analysis-window filtering, quintile direction/bounds + small-sample fallback, the full segment rule table, and end-to-end extremes (clear Champion / Hibernating) |
 | `tests/test_clv.py` | `observed_tenure_days` (longest of signup / order span, floored), `annualised_frequency` floor, `base_churn_rate` / lifespan clamp, and `compute_clv` reproducing the formula — incl. **messy input** (no signup, zero frequency, signup after snapshot) |
 | `tests/test_cohorts.py` | hand-checked two-cohort grid, tail-trim to observable months, **dropping cohorts that predate the order history**, and messy input (pre-signup orders, missing signup) |
+| `tests/test_dashboard_transforms.py` | RFM composite score, RFM×CLV inner join, median-split **quadrant assignment** (incl. degenerate axis), quadrant summary, cohort pivot / sizes / average curve |
 | `tests/test_forecasting.py` | gap-filling to a daily series, feature-matrix shape, linear-trend recovery, negative clipping; **Holt-Winters** (needs 2 cycles, learns the weekly shape, clips); **backtest** (row per model, known error metrics, Holt-Winters wins on a level shift) |
 
 `.github/workflows/tests.yml` runs `pytest` on every push and PR.
