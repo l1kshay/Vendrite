@@ -113,6 +113,20 @@ def test_retention_matrix_pivots_and_leaves_gaps_nan():
     assert np.isnan(m.loc[pd.Timestamp("2025-02-01").date(), 1])
 
 
+def test_retention_counts_matrix_aligns_with_rate_matrix():
+    c = _cohorts([
+        ("2025-01-01", 0, 10, 10, 1.0),
+        ("2025-01-01", 1, 10, 6, 0.6),
+        ("2025-02-01", 0, 8, 7, 0.875),
+    ])
+    counts = tf.retention_counts_matrix(c)
+    rates = tf.retention_matrix(c)
+    assert list(counts.index) == list(rates.index)
+    assert list(counts.columns) == list(rates.columns)
+    assert counts.loc[pd.Timestamp("2025-01-01").date(), 1] == 6
+    assert np.isnan(counts.loc[pd.Timestamp("2025-02-01").date(), 1])
+
+
 def test_cohort_sizes_one_per_cohort():
     c = _cohorts([
         ("2025-01-01", 0, 10, 10, 1.0),

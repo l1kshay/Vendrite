@@ -96,6 +96,20 @@ def retention_matrix(cohorts: pd.DataFrame) -> pd.DataFrame:
     return m.sort_index()
 
 
+def retention_counts_matrix(cohorts: pd.DataFrame) -> pd.DataFrame:
+    """Wide grid of ``retained_customers``, aligned to :func:`retention_matrix`
+    (same index and columns). Feeds the heatmap hover so a cell can show the raw
+    counts behind its colour, not just the percentage."""
+    if cohorts.empty:
+        return pd.DataFrame()
+    m = cohorts.pivot_table(
+        index="cohort_month", columns="months_since_signup", values="retained_customers"
+    )
+    m.index = pd.to_datetime(m.index).date
+    m.columns = [int(c) for c in m.columns]
+    return m.sort_index()
+
+
 def cohort_sizes(cohorts: pd.DataFrame) -> pd.Series:
     """One cohort_size per cohort_month, indexed by date."""
     if cohorts.empty:
