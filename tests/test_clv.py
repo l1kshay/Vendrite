@@ -40,8 +40,14 @@ def test_annualised_frequency_negative_tenure_floored():
 
 
 # ---------------------------------------------------------------------------
-# estimate_lifespan_years
+# base_churn_rate / estimate_lifespan_years
 # ---------------------------------------------------------------------------
+def test_base_churn_rate():
+    assert clv.base_churn_rate(pd.Series([10, 20, 200, 300]), churn_days=90) == pytest.approx(0.5)
+    assert clv.base_churn_rate(pd.Series([1, 2, 3]), churn_days=90) == 0.0
+    assert clv.base_churn_rate(pd.Series([], dtype=float), churn_days=90) == 0.0
+
+
 def test_estimate_lifespan_one_over_churn_rate():
     # 2 of 4 customers churned (recency > 90) -> churn_rate 0.5 -> lifespan 2.0y
     rec = pd.Series([10, 20, 200, 300])
@@ -63,10 +69,12 @@ def test_estimate_lifespan_clamped_both_ends():
 
 
 # ---------------------------------------------------------------------------
-# compute_clv -- end to end, hand-checked
+# observed_tenure_days
 # ---------------------------------------------------------------------------
-def _rfm(rows: list[tuple]) -> pd.DataFrame:
-    return pd.DataFrame(rows, columns=["customer_id", "recency", "frequency", "monetary"])
+def _orders(rows: list[tuple]) -> pd.DataFrame:
+    df = pd.DataFrame(rows, columns=["customer_id", "order_date"])
+    df["order_date"] = pd.to_datetime(df["order_date"])
+    return df
 
 
 def _customers(rows: list[tuple]) -> pd.DataFrame:
@@ -75,17 +83,55 @@ def _customers(rows: list[tuple]) -> pd.DataFrame:
     return df
 
 
+def test_observed_tenure_days_takes_the_longest():
+    orders = _orders([
+        (1, "2026-01-01"), (1, "2026-06-30"),   # order span 180 days
+        (2, "2026-03-20"), (2, "2026-03-30"),   # order span 10 days
+        (3, "2026-08-20"),                       # single order, span 0
+    ])
+    customers = _customers([
+        (1, SNAPSHOT - pd.Timedelta(days=123)),  # signup tenure < order span
+        (2, SNAPSHOT - pd.Timedelta(days=730)),  # signup tenure > order span
+        (3, None),                                # no signup -> falls to floor
+    ])
+    t = clv.observed_tenure_days(
+        orders, customers, SNAPSHOT, min_tenure_days=30
+    ).set_index("customer_id")["tenure_days"]
+    assert t.loc[1] == 180        # order span wins
+    assert t.loc[2] == 730        # signup tenure wins
+    assert t.loc[3] == 30         # min-tenure floor wins
+
+
+def test_observed_tenure_days_signup_after_snapshot():
+    # MESSY: signup dated after the snapshot -> negative signup tenure, ignored.
+    orders = _orders([(1, "2026-02-01"), (1, "2026-05-01")])   # span ~89 days
+    customers = _customers([(1, SNAPSHOT + pd.Timedelta(days=10))])
+    t = clv.observed_tenure_days(orders, customers, SNAPSHOT, min_tenure_days=30)
+    assert t.loc[0, "tenure_days"] == pytest.approx(89.0)
+    assert np.isfinite(t["tenure_days"]).all()
+
+
+# ---------------------------------------------------------------------------
+# compute_clv -- end to end, hand-checked
+# ---------------------------------------------------------------------------
+def _rfm(rows: list[tuple]) -> pd.DataFrame:
+    return pd.DataFrame(rows, columns=["customer_id", "recency", "frequency", "monetary"])
+
+
+def _tenure(rows: list[tuple]) -> pd.DataFrame:
+    return pd.DataFrame(rows, columns=["customer_id", "tenure_days"]).astype(
+        {"tenure_days": "float64"}
+    )
+
+
 def test_compute_clv_known_customers():
     rfm = _rfm([
         (1, 10, 4, 1000.0),    # active, 4 orders, $1000 lifetime
         (2, 200, 2, 300.0),    # churned, 2 orders, $300 lifetime
     ])
-    customers = _customers([
-        (1, SNAPSHOT - pd.Timedelta(days=100)),
-        (2, SNAPSHOT - pd.Timedelta(days=300)),
-    ])
+    tenure = _tenure([(1, 100), (2, 300)])
     out = clv.compute_clv(
-        rfm, customers, SNAPSHOT,
+        rfm, tenure,
         gross_margin=0.30, churn_days=90, min_tenure_days=30,
         lifespan_bounds=(1.0, 10.0),
     ).set_index("customer_id")
@@ -105,9 +151,9 @@ def test_compute_clv_known_customers():
 
 def test_compute_clv_identity_holds():
     rfm = _rfm([(i, 30, i + 1, 100.0 * (i + 1)) for i in range(1, 8)])
-    customers = _customers([(i, SNAPSHOT - pd.Timedelta(days=60 * i)) for i in range(1, 8)])
+    tenure = _tenure([(i, 60 * i) for i in range(1, 8)])
     out = clv.compute_clv(
-        rfm, customers, SNAPSHOT,
+        rfm, tenure,
         gross_margin=0.25, churn_days=90, min_tenure_days=30,
         lifespan_bounds=(1.0, 10.0),
     )
@@ -121,37 +167,20 @@ def test_compute_clv_identity_holds():
     assert (out["gross_margin"] == 0.25).all()
 
 
-def test_compute_clv_drops_missing_signup_and_zero_frequency():
-    # MESSY: c2 has no signup_date (tenure undefined); c3 has frequency 0.
+def test_compute_clv_zero_frequency_dropped_missing_tenure_floored():
+    # MESSY: c2 has frequency 0 (dropped); c3 has no tenure row (-> floor).
     rfm = _rfm([
         (1, 10, 3, 600.0),
-        (2, 10, 3, 600.0),
-        (3, 10, 0, 0.0),
+        (2, 10, 0, 0.0),
+        (3, 10, 2, 400.0),
     ])
-    customers = _customers([
-        (1, SNAPSHOT - pd.Timedelta(days=90)),
-        (3, SNAPSHOT - pd.Timedelta(days=90)),
-    ])  # note: no row for customer 2 at all
+    tenure = _tenure([(1, 90)])  # nothing for 2 or 3
     out = clv.compute_clv(
-        rfm, customers, SNAPSHOT,
+        rfm, tenure,
         gross_margin=0.30, churn_days=90, min_tenure_days=30,
         lifespan_bounds=(1.0, 10.0),
-    )
-    assert list(out["customer_id"]) == [1]
-
-
-def test_compute_clv_signup_after_snapshot_stays_finite():
-    # MESSY: signup dated 5 days AFTER the snapshot -> negative tenure.
-    rfm = _rfm([(1, 5, 2, 200.0), (2, 5, 1, 80.0)])
-    customers = _customers([
-        (1, SNAPSHOT + pd.Timedelta(days=5)),
-        (2, SNAPSHOT - pd.Timedelta(days=45)),
-    ])
-    out = clv.compute_clv(
-        rfm, customers, SNAPSHOT,
-        gross_margin=0.30, churn_days=90, min_tenure_days=30,
-        lifespan_bounds=(1.0, 10.0),
-    )
+    ).set_index("customer_id")
+    assert list(out.index) == [1, 3]
+    # customer 3 annualised over the 30-day floor
+    assert out.loc[3, "purchase_freq_annual"] == pytest.approx(2 * YEAR / 30, abs=1e-4)
     assert np.isfinite(out["predicted_clv"]).all()
-    assert (out["predicted_clv"] >= 0).all()
-    assert len(out) == 2

@@ -83,6 +83,22 @@ def test_ignores_orders_before_signup():
     assert row["retained_customers"] == 1 and row["retention_rate"] == 1.0
 
 
+def test_drops_cohorts_that_predate_order_history():
+    # customer 1 signed up mid-2024 but the order history only starts 2026-01;
+    # that cohort's month-0..n retention is unobservable -> the cohort is dropped
+    # rather than reported as all-zeros.
+    cust = customers([(1, "2024-06-10"), (2, "2026-01-05"), (3, "2026-02-05")])
+    ords = orders([
+        (1, "2026-01-20"), (1, "2026-02-20"),
+        (2, "2026-01-25"),
+        (3, "2026-02-10"), (3, "2026-03-10"),
+    ])
+    out = cohorts.compute_cohort_retention(
+        cust, ords, max_months=MAX, signup_grace_months=1
+    )
+    assert set(out["cohort_month"]) == {date(2026, 1, 1), date(2026, 2, 1)}
+
+
 def test_missing_signup_excluded():
     # MESSY: customer 1 has no signup_date -> no cohort at all.
     cust = customers([(1, None), (2, "2026-02-01")])

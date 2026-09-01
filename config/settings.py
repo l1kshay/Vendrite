@@ -219,6 +219,10 @@ CLV_LIFESPAN_MAX_YEARS: float = float(os.getenv("VENDRITE_CLV_LIFESPAN_MAX_YEARS
 # ---------------------------------------------------------------------------
 # Longest horizon (months since signup) to report per cohort.
 COHORT_MAX_MONTHS: int = int(os.getenv("VENDRITE_COHORT_MAX_MONTHS", "12"))
+# Skip cohorts whose signup month is more than this many months before the
+# first order in the warehouse: their early-month retention is structurally
+# unobservable, so reporting it as zeros would be misleading.
+COHORT_SIGNUP_GRACE_MONTHS: int = int(os.getenv("VENDRITE_COHORT_SIGNUP_GRACE_MONTHS", "1"))
 
 
 # ---------------------------------------------------------------------------

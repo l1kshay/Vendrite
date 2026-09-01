@@ -210,17 +210,40 @@ is auditable. **Deliberate simplifications** (interview material): historical /
 heuristic rather than predictive (no BG/NBD churn model), and no discounting of
 future cash flows — both are natural extensions, left out so every term stays
 verifiable by hand. Customers with no `signup_date` are dropped and logged.
-Pairing CLV with RFM is the point: *high RFM + high CLV* (protect) reads very
-differently from *high RFM + low CLV* (frequent but low-value).
+
+**Known degeneracy of a single average lifespan:** when the base churn rate is
+very low, `1/churn_rate` exceeds the 10-year clamp and `L` pins to the cap for
+*every* customer — so `L` stops differentiating and CLV ranking collapses to
+`AOV × annualised frequency`. On the bundled synthetic data churn is ~1–2%, so
+this is exactly what happens; `clv.run()` logs `base_churn_rate` and a
+`lifespan_clamped` flag so it's never silent. It's the textbook formula
+behaving correctly — the fix on real data is genuine lapsed customers, or a
+per-customer residual-lifetime model. Even with `L` constant, CLV ≠ RFM: the
+frequency term is *annualised*, so CLV rewards recent purchase **velocity**
+where RFM's monetary score rewards **cumulative** spend — which is why *high
+RFM + low CLV* (big historical spender, slowing) reads differently from *high
+RFM + high CLV* (big spender, still fast).
 
 **Cohort retention** (`analytics/cohorts.py`) — customers grouped by
 `signup_date` month; for each cohort, the share still purchasing 0, 1, 2, …
-months later. Only **data-observable** cells are written: a cohort that signed
-up 3 months before the latest order gets `months_since_signup` 0–3, never
-0–`VENDRITE_COHORT_MAX_MONTHS`, so recent cohorts don't show a fake cliff.
-Orders predating a customer's signup (negative offset) are ignored.
-`cohort_retention` is upserted on `(computed_date, cohort_month,
-months_since_signup)`.
+months later. Only **data-observable** cells are written:
+
+- the **tail** is trimmed — a cohort that signed up 3 months before the latest
+  order gets `months_since_signup` 0–3, never 0–`VENDRITE_COHORT_MAX_MONTHS`,
+  so recent cohorts don't show a fake cliff;
+- a whole cohort is **dropped** when its signup month is more than
+  `VENDRITE_COHORT_SIGNUP_GRACE_MONTHS` before the earliest order — every cell
+  would otherwise be a structural zero. (On the bundled synthetic data, signup
+  dates span ~3 years but orders span 12 months, so this drops the pre-window
+  cohorts; the kept cohorts are small — ~7 customers each — because signups are
+  spread thin. Tightening the mock generator's signup range is the fix for
+  fuller curves.)
+
+Orders predating a customer's signup (negative offset) are ignored. Each run
+**replaces that `computed_date`'s rows** (delete + insert in one transaction)
+so the grid is always one coherent computation, while earlier days stay as
+history; a plain upsert would strand rows for cohorts that drop out between
+runs.
 
 **Forecasting** — `fact_sales` aggregated to a gap-free daily revenue series;
 an explainable OLS `LinearRegression` on `revenue ~ b0 + b_t·t + Σ b_dow·[weekday]`

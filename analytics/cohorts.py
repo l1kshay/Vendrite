@@ -3,8 +3,8 @@ Signup-month cohort retention (analytical-depth revamp, Phase A).
 
 Groups customers by the calendar month of ``signup_date`` (their cohort), then
 for each cohort measures how many of its customers placed at least one order in
-the calendar month that is 0, 1, 2, ... months after signup, and UPSERTS the
-grid into ``analytics.cohort_retention``.
+the calendar month that is 0, 1, 2, ... months after signup, and writes the
+grid into ``analytics.cohort_retention`` (replacing that day's rows).
 
     cohort_month         first day of the signup month
     months_since_signup  0 = the signup month itself, 1 = the next month, ...
@@ -12,10 +12,16 @@ grid into ``analytics.cohort_retention``.
     retained_customers   # of those who ordered in (signup month + k)
     retention_rate       retained_customers / cohort_size   (0..1)
 
-Only cells the data can actually observe are emitted: a cohort that signed up
-3 months before the most recent order in the warehouse gets rows for k = 0..3,
-not k = 0..COHORT_MAX_MONTHS -- otherwise later months would show a fake drop
-to zero simply because no data exists for them yet.
+Only cells the data can actually observe are emitted:
+
+* the *tail* is trimmed -- a cohort that signed up 3 months before the most
+  recent order in the warehouse gets rows for k = 0..3, not
+  k = 0..COHORT_MAX_MONTHS, so later months don't show a fake drop to zero;
+* the *whole cohort* is dropped when its signup month is more than
+  COHORT_SIGNUP_GRACE_MONTHS before the earliest order in the warehouse -- its
+  month-0..n retention is entirely unobservable, so every cell would be a
+  structural zero (this happens on the bundled synthetic data, whose signup
+  dates span years before the 12-month order window).
 
 Notes / edge behaviour
 ----------------------
@@ -35,7 +41,6 @@ import logging
 from datetime import date
 
 import pandas as pd
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
 
 # --- ensure the project root is importable, however this file is launched ----
@@ -79,6 +84,7 @@ def compute_cohort_retention(
     orders_df: pd.DataFrame,
     *,
     max_months: int,
+    signup_grace_months: int = 1,
 ) -> pd.DataFrame:
     """``customers_df``: [customer_id, signup_date]. ``orders_df``:
     [customer_id, order_date] (one row per order line is fine -- de-duped here).
@@ -94,7 +100,9 @@ def compute_cohort_retention(
     if cust.empty or orders.empty:
         return pd.DataFrame(columns=RETENTION_COLUMNS)
 
-    last_order_mi = int(_month_index(orders["order_date"]).max())
+    order_mi = _month_index(orders["order_date"])
+    first_order_mi = int(order_mi.min())
+    last_order_mi = int(order_mi.max())
 
     merged = orders.merge(
         cust[["customer_id", "cohort_month", "cohort_mi"]], on="customer_id", how="inner"
@@ -115,6 +123,8 @@ def compute_cohort_retention(
     records: list[dict] = []
     for cohort_month, size in cohort_size.items():
         cohort_mi = cohort_month.year * 12 + (cohort_month.month - 1)
+        if cohort_mi < first_order_mi - signup_grace_months:
+            continue  # signup predates the order history -> nothing observable
         observable = min(max_months, last_order_mi - cohort_mi)
         if observable < 0:  # cohort signed up after the last data month
             continue
@@ -143,14 +153,21 @@ def compute_cohort_retention(
 
 
 # ---------------------------------------------------------------------------
-# write (idempotent upsert on the natural cell key)
+# write (whole grid replaced per computed_date)
 # ---------------------------------------------------------------------------
 def load_cohort_retention(
     engine: Engine, retention_df: pd.DataFrame, computed_date: date
 ) -> int:
-    """UPSERT rows into ``analytics.cohort_retention`` keyed on
-    (computed_date, cohort_month, months_since_signup) so a same-day re-run
-    refreshes rather than duplicates."""
+    """Replace this ``computed_date``'s grid: DELETE the day's rows, then INSERT
+    the freshly computed set, in one transaction.
+
+    A plain upsert is not enough -- if the analysable cohort set *shrinks*
+    between runs (e.g. the signup-grace filter drops a cohort, or the data
+    window moves), upsert-only would leave the vanished cohort's rows behind.
+    Deleting the day's rows first keeps each ``computed_date`` a single
+    coherent computation while still preserving earlier days as history. Re-runs
+    are idempotent.
+    """
     md = reflect(engine)
     tbl = md.tables[f"{settings.ANALYTICS_SCHEMA}.cohort_retention"]
     rows = [
@@ -164,20 +181,12 @@ def load_cohort_retention(
         }
         for row in retention_df.itertuples(index=False)
     ]
-    if rows:
-        with engine.begin() as conn:
-            stmt = pg_insert(tbl).values(rows)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["computed_date", "cohort_month", "months_since_signup"],
-                set_={
-                    "cohort_size": stmt.excluded.cohort_size,
-                    "retained_customers": stmt.excluded.retained_customers,
-                    "retention_rate": stmt.excluded.retention_rate,
-                },
-            )
-            conn.execute(stmt)
+    with engine.begin() as conn:
+        conn.execute(tbl.delete().where(tbl.c.computed_date == computed_date))
+        if rows:
+            conn.execute(tbl.insert(), rows)
     logger.info(
-        "Upserted %d cohort_retention rows (computed_date=%s)", len(rows), computed_date
+        "Replaced cohort_retention grid: %d rows (computed_date=%s)", len(rows), computed_date
     )
     return len(rows)
 
@@ -188,7 +197,8 @@ def _avg_retention_at(retention_df: pd.DataFrame, k: int) -> float | None:
 
 
 def run(engine: Engine | None = None) -> dict:
-    """Read customers + orders -> build the retention grid -> upsert. Logs to etl_run_log."""
+    """Read customers + orders -> build the retention grid -> replace the day's
+    rows. Logs to etl_run_log."""
     engine = engine or get_engine("etl")
     log_run(engine, "STARTED")
     try:
@@ -198,7 +208,10 @@ def run(engine: Engine | None = None) -> dict:
             raise RuntimeError("fact_sales is empty -- run the ETL pipeline first")
 
         retention = compute_cohort_retention(
-            customers, orders, max_months=settings.COHORT_MAX_MONTHS
+            customers,
+            orders,
+            max_months=settings.COHORT_MAX_MONTHS,
+            signup_grace_months=settings.COHORT_SIGNUP_GRACE_MONTHS,
         )
         n = load_cohort_retention(engine, retention, date.today())
 
