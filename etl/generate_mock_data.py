@@ -65,15 +65,22 @@ _PRODUCT_NOUNS = {
 _PRODUCT_ADJECTIVES = ("Classic", "Pro", "Deluxe", "Everyday", "Compact", "Premium", "Essential", "Ultra")
 
 
-def _build_customers(rng: np.random.Generator, n: int) -> list[dict]:
+def _build_customers(rng: np.random.Generator, n: int, months_back: int) -> list[dict]:
     customers: list[dict] = []
     today = date.today()
+    # Signups must OVERLAP the order window (orders span the last `months_back`
+    # months) or cohort-retention cells for early-signup customers would all be
+    # structural zeros. Draw signup 30 days ago .. ~1.5 months before the order
+    # window starts: every customer then has time to make a "retained" purchase,
+    # while the earliest 1-2 cohorts still predate the first order by <= the
+    # analytics COHORT_SIGNUP_GRACE_MONTHS.
+    max_offset = int(30.44 * months_back) + 45
     for i in range(1, n + 1):
         first = rng.choice(_FIRST_NAMES)
         last = rng.choice(_LAST_NAMES)
         # unique-ish email via customer index
         email = f"{first}.{last}{i}@example.com".lower()
-        signup_offset = int(rng.integers(30, 365 * 3))
+        signup_offset = int(rng.integers(30, max_offset))
         customers.append(
             {
                 "customer_name": f"{first} {last}",
@@ -161,7 +168,7 @@ def generate(
     settings.ensure_dirs()
     rng = np.random.default_rng(seed)
 
-    customers = _build_customers(rng, n_customers)
+    customers = _build_customers(rng, n_customers, months_back)
     products = _build_products(rng, n_products)
     logger.info("Generated %d customers, %d products", len(customers), len(products))
 
