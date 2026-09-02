@@ -237,6 +237,27 @@ COHORT_SIGNUP_GRACE_MONTHS: int = int(os.getenv("VENDRITE_COHORT_SIGNUP_GRACE_MO
 AUTH_COOKIE_NAME: str = os.getenv("VENDRITE_AUTH_COOKIE_NAME", "vendrite_auth")
 AUTH_COOKIE_KEY: str | None = os.getenv("VENDRITE_AUTH_COOKIE_KEY")
 AUTH_COOKIE_EXPIRY_DAYS: int = int(os.getenv("VENDRITE_AUTH_COOKIE_EXPIRY_DAYS", "7"))
+
+# SameSite policy for the re-auth cookie. `extra_streamlit_components` (which
+# streamlit-authenticator writes the cookie through) defaults to "strict", and
+# the library exposes no way to change it. Strict makes the browser *store* the
+# cookie but withhold it from any cross-site request — including the websocket
+# of an app embedded in an iframe — so the server never sees the token and every
+# page load falls back to the login screen. "lax" is the right default; use
+# "none" (which forces Secure) if the app is embedded cross-site.
+AUTH_COOKIE_SAME_SITE: str = (os.getenv("VENDRITE_AUTH_COOKIE_SAME_SITE") or "lax").strip().lower()
+if AUTH_COOKIE_SAME_SITE not in {"lax", "strict", "none"}:
+    raise ValueError(
+        "VENDRITE_AUTH_COOKIE_SAME_SITE must be one of 'lax', 'strict', 'none' "
+        f"(got {AUTH_COOKIE_SAME_SITE!r})"
+    )
+_auth_cookie_secure = os.getenv("VENDRITE_AUTH_COOKIE_SECURE")
+# SameSite=None is rejected by browsers unless the cookie is also Secure.
+AUTH_COOKIE_SECURE: bool = (
+    _auth_cookie_secure.strip().lower() in {"1", "true", "yes", "on"}
+    if _auth_cookie_secure is not None
+    else AUTH_COOKIE_SAME_SITE == "none"
+) or AUTH_COOKIE_SAME_SITE == "none"
 AUTH_USERNAME: str | None = os.getenv("VENDRITE_AUTH_USERNAME")
 AUTH_NAME: str | None = os.getenv("VENDRITE_AUTH_NAME")
 AUTH_EMAIL: str | None = os.getenv("VENDRITE_AUTH_EMAIL")

@@ -471,6 +471,33 @@ component's own round-trip supplies the follow-up rerun. `tests/test_dashboard_a
 has an AST-based guard that fails if an `st.rerun()` reappears in `app.py` or
 `auth.py`.
 
+#### Cookie SameSite policy — why "stay signed in" can silently fail
+
+`extra_streamlit_components` writes cookies with **`SameSite=Strict`** by
+default, and `streamlit-authenticator` never overrides it. Strict makes the
+browser *store* the cookie — you can see it in DevTools, unchanged, after a
+refresh — but **withhold it from every cross-site request**, including the
+websocket handshake of an app served inside an iframe. `st.context.cookies` is
+then empty, so the read path correctly concludes "not signed in" and you land on
+the login screen with a perfectly valid cookie sitting in the browser.
+
+`auth.py` therefore wraps the cookie manager's `set` and injects the policy from
+`VENDRITE_AUTH_COOKIE_SAME_SITE` (default `lax`) and
+`VENDRITE_AUTH_COOKIE_SECURE`. Measured server-side (`st.context.cookies`) in
+each context:
+
+| SameSite | opened at its own URL | embedded in an iframe |
+| --- | --- | --- |
+| `strict` (library default) | signed in | **login screen** |
+| `lax` (our default) | signed in | **login screen** |
+| `none` + `Secure` | signed in | signed in |
+
+**If refresh still logs you out on Streamlit Community Cloud, set
+`VENDRITE_AUTH_COOKIE_SAME_SITE=none` in the app's Secrets** — that entry point
+serves the app cross-site, and `none` is the only policy the browser will send
+there. It requires HTTPS, which Cloud always is. Confirm by checking the
+cookie's *SameSite* column in DevTools → Application → Cookies.
+
 ---
 
 ## Automation & reporting

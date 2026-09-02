@@ -150,3 +150,50 @@ def test_no_rerun_between_authenticator_calls_and_end_of_run(configured_auth):
     for path in (Path(APP), Path(APP).parent / "auth.py"):
         hits = rerun_calls(path)
         assert not hits, f"{path.name} calls st.rerun() at line(s) {hits}"
+
+
+def test_cookie_policy_overrides_the_library_samesite_default():
+    """The re-auth cookie must not inherit extra_streamlit_components'
+    SameSite=Strict, which the browser withholds from cross-site requests —
+    the cookie is then stored but never sent and every load shows the login
+    screen. `_apply_cookie_policy` injects our policy into the manager's set().
+    """
+    import types
+
+    captured: dict = {}
+
+    class FakeManager:
+        def set(self, cookie, val, **kwargs):
+            captured.update(kwargs)
+
+    authenticator = types.SimpleNamespace(
+        cookie_controller=types.SimpleNamespace(
+            cookie_model=types.SimpleNamespace(cookie_manager=FakeManager())
+        )
+    )
+    auth._apply_cookie_policy(authenticator)
+    manager = authenticator.cookie_controller.cookie_model.cookie_manager
+    # mimic what streamlit-authenticator does: set() with no same_site/secure
+    manager.set("vendrite_auth", "token")
+
+    assert captured["same_site"] == settings.AUTH_COOKIE_SAME_SITE
+    assert settings.AUTH_COOKIE_SAME_SITE in {"lax", "strict", "none"}
+    if settings.AUTH_COOKIE_SAME_SITE == "none":
+        # browsers reject SameSite=None without Secure
+        assert settings.AUTH_COOKIE_SECURE is True
+        assert captured["secure"] is True
+
+
+def test_samesite_none_forces_secure(monkeypatch):
+    import importlib
+
+    monkeypatch.setenv("VENDRITE_AUTH_COOKIE_SAME_SITE", "none")
+    monkeypatch.setenv("VENDRITE_AUTH_COOKIE_SECURE", "false")
+    reloaded = importlib.reload(settings)
+    try:
+        assert reloaded.AUTH_COOKIE_SAME_SITE == "none"
+        assert reloaded.AUTH_COOKIE_SECURE is True  # forced despite "false"
+    finally:
+        monkeypatch.delenv("VENDRITE_AUTH_COOKIE_SAME_SITE", raising=False)
+        monkeypatch.delenv("VENDRITE_AUTH_COOKIE_SECURE", raising=False)
+        importlib.reload(settings)

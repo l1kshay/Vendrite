@@ -38,6 +38,37 @@ _AUTH_ENV = {
 _AUTHENTICATOR_KEY = "_vd_authenticator"
 
 
+def _apply_cookie_policy(authenticator: stauth.Authenticate) -> None:
+    """Give the re-auth cookie a usable SameSite/Secure policy.
+
+    ``streamlit-authenticator`` writes the cookie with
+    ``extra_streamlit_components``' ``CookieManager.set()`` and never passes
+    ``same_site`` or ``secure``, so it inherits that library's default of
+    **SameSite=Strict** with no Secure flag — and exposes no way to configure
+    either. Strict means the browser stores the cookie (it is visible in
+    DevTools) but withholds it from every cross-site request, including the
+    websocket handshake of an app embedded in an iframe. ``st.context.cookies``
+    is then empty, ``get_cookie()`` returns ``None``, and the gate correctly but
+    uselessly concludes "not signed in" on every load.
+
+    Rather than reimplement the token logic, we wrap the manager's ``set`` and
+    inject the two attributes the library omits.
+    """
+    manager = authenticator.cookie_controller.cookie_model.cookie_manager
+    if getattr(manager, "_vd_cookie_policy", False):
+        return
+    original_set = manager.set
+
+    def set_with_policy(*args, **kwargs):
+        kwargs.setdefault("same_site", settings.AUTH_COOKIE_SAME_SITE)
+        if settings.AUTH_COOKIE_SECURE:
+            kwargs.setdefault("secure", True)
+        return original_set(*args, **kwargs)
+
+    manager.set = set_with_policy
+    manager._vd_cookie_policy = True
+
+
 def _build_authenticator() -> stauth.Authenticate:
     credentials = {
         "usernames": {
@@ -50,13 +81,15 @@ def _build_authenticator() -> stauth.Authenticate:
     }
     # constructing the model seeds st.session_state["authentication_status"] /
     # ["name"] / ["username"] / ["logout"] to None if absent — relied on below.
-    return stauth.Authenticate(
+    authenticator = stauth.Authenticate(
         credentials,
         settings.AUTH_COOKIE_NAME,
         settings.AUTH_COOKIE_KEY,
         settings.AUTH_COOKIE_EXPIRY_DAYS,
         auto_hash=False,
     )
+    _apply_cookie_policy(authenticator)
+    return authenticator
 
 
 def _require_configured() -> None:
