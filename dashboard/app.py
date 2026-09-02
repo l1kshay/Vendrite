@@ -41,7 +41,7 @@ if _ROOT not in _sys.path:
 
 st.set_page_config(page_title="Vendrite", page_icon="📊", layout="wide")
 
-from dashboard.theme import inject_css, inject_mode_css
+from dashboard.theme import inject_css, inject_login_css, inject_mode_css
 
 inject_css()
 
@@ -55,6 +55,7 @@ def _noop() -> None:  # placeholder page target for the logged-out state
 
 # Streamlit executes this file top-to-bottom on every rerun.
 if not authenticate():
+    inject_login_css()  # no sidebar region on the login screen
     render_login_form()
     # a submit inside the form above may have just authenticated us
     if st.session_state.get("authentication_status") is True:

@@ -398,17 +398,25 @@ a {{ color: var(--accent); }}
   border-bottom: 1px solid var(--border);
 }}
 
-/* ---- sidebar user content: order the three chrome blocks ----------- */
-/* Streamlit always paints the nav first, then user content in call order
-   (logout, toggle, then the Filters expander from the page). Re-order them
-   to: Filters -> Presentation toggle -> Log out. Keyed via st.container /
-   st.expander `key=` -> `.st-key-*`. If a Streamlit change drops these
-   classes the blocks still all render, just in call order. */
-[data-testid="stSidebarUserContent"] {{ display: flex; flex-direction: column; gap: .1rem; }}
+/* ---- sidebar user content: order the chrome, pin the session block --- */
+/* Streamlit paints the nav first, then user content in call order (logout,
+   toggle, then the Filters expander from the page). Re-order to: Filters ->
+   Presentation toggle -> [gap] -> Log out, with Log out pinned to the very
+   bottom. Keyed via st.container / st.expander `key=` -> `.st-key-*`.
+   Streamlit has no native sidebar-footer slot, so the pin is a flex column
+   that fills the sidebar height + `margin-top: auto` on the last block; the
+   `min-height` is a fallback if the flex chain ever changes. Degradation on
+   a Streamlit rename: blocks render in call order, un-pinned. */
+[data-testid="stSidebarContent"] {{ display: flex; flex-direction: column; height: 100%; }}
+[data-testid="stSidebarUserContent"] {{
+  display: flex; flex-direction: column; gap: .1rem;
+  flex: 1 1 auto; min-height: calc(100dvh - 19rem);
+}}
 [data-testid="stSidebarUserContent"] .st-key-vd-filters {{ order: 1; }}
 [data-testid="stSidebarUserContent"] .st-key-vd-presentation {{ order: 2; padding: .35rem .15rem; }}
 [data-testid="stSidebarUserContent"] .st-key-vd-session {{
-  order: 3; margin-top: .6rem; padding-top: .7rem; border-top: 1px solid var(--border);
+  order: 3; margin-top: auto; padding-top: .8rem;
+  border-top: 1px solid var(--border);
 }}
 .st-key-vd-session [data-testid="stCaptionContainer"] {{ margin-top: .3rem; }}
 
@@ -532,6 +540,33 @@ def inject_css() -> None:
     """Inject the dashboard's stylesheet. Call once, right after
     ``st.set_page_config`` in the entry script."""
     st.markdown(_CSS, unsafe_allow_html=True)
+
+
+# ===========================================================================
+# login state — no sidebar region at all
+# ===========================================================================
+# Nothing writes to st.sidebar when unauthenticated, but Streamlit still keeps
+# the sidebar's open/closed state in the browser: after logout it was open, so
+# an empty full-width panel (with our background + border) stays on screen.
+# Collapse it hard for the login screen and let the login card have the full
+# viewport width. Scoped: injected only on the unauthenticated path.
+_LOGIN_CSS = """
+<style>
+[data-testid="stSidebar"],
+[data-testid="stSidebarContent"],
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapseButton"] { display: none !important; }
+[data-testid="stAppViewContainer"] > [data-testid="stMain"] {
+  width: 100% !important; min-width: 100% !important;
+}
+</style>
+"""
+
+
+def inject_login_css() -> None:
+    """Remove the sidebar region entirely for the login screen. Call from the
+    entry script on the unauthenticated path."""
+    st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
 
 
 # ===========================================================================

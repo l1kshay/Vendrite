@@ -74,6 +74,12 @@ def test_unauthenticated_render_is_only_the_login_card(configured_auth, nav_spy)
     assert len(nav_spy) == 1
     assert nav_spy[0]["kwargs"].get("position") == "hidden"
 
+    # the login screen collapses the sidebar region entirely
+    assert any(
+        'data-testid="stSidebar"' in m.value and "display: none" in m.value
+        for m in at.markdown
+    )
+
 
 def test_authenticated_build_uses_the_real_page_tree(configured_auth, nav_spy):
     at = AppTest.from_file(APP, default_timeout=60)

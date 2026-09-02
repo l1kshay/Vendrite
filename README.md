@@ -375,11 +375,20 @@ polished default shouldn't cost you the analysis tools.
 
 **Sidebar order** (top → bottom): the Vendrite wordmark (a CSS `::before` on the
 nav — a `st.sidebar.*` call would land *below* the nav) · nav groups · Filters
-expander · Presentation-mode toggle · Log out + "Signed in as …". Streamlit
-always paints the nav first and user content in call order, so the last three
-are re-ordered by CSS (`.st-key-vd-*` + flex `order` in `theme.py`); if a
-Streamlit change drops the `st-key-*` classes the blocks still all render, just
-in call order.
+expander · Presentation-mode toggle · *[spacer]* · Log out + "Signed in as …"
+pinned to the bottom. Streamlit paints the nav first and user content in call
+order, so the chrome blocks are re-ordered by CSS (`.st-key-vd-*` + flex
+`order`), and — since Streamlit has no native sidebar-footer slot — the session
+block is pinned with `margin-top: auto` on a `stSidebarUserContent` forced to
+fill the sidebar height (`flex: 1` + a `min-height` fallback). If a Streamlit
+change drops the `st-key-*` classes the blocks still render, in call order and
+un-pinned.
+
+**Login screen** has no sidebar region at all: nothing writes to `st.sidebar`
+when unauthenticated, and `inject_login_css()` collapses `[data-testid=
+"stSidebar"]` outright (Streamlit otherwise keeps the panel's open state from
+before logout and shows an empty full-width shell). The login card then centres
+against the full viewport.
 
 What the toggle **can't** reach: the slide-up "Manage app" console itself, the
 Streamlit Cloud account bar, and the `*.streamlit.app` browser chrome all live
