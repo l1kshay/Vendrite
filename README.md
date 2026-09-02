@@ -407,11 +407,13 @@ the fully clean surface.
   tables get the base-dark look + column config; the small summary tables use
   `st.table` (HTML) and are fully themed.
 - Presentation mode hides framework chrome by Streamlit-internal test ids —
-  `stElementToolbar`, `stToolbar`, `stStatusWidget`, `stMainMenu`,
-  `stAppDeployButton`. These are the **only** framework selectors in the
-  stylesheet (all in the one `_CHROME_SELECTORS` list in `theme.py`); a future
-  Streamlit release could rename any of them, and that list is then what to
-  update. Everything else targets our own markup.
+  `stElementToolbar`, `stToolbarActions`, `stStatusWidget`, `stMainMenu`,
+  `stAppDeployButton` (the one `_CHROME_SELECTORS` list in `theme.py`); a future
+  Streamlit release could rename any, and that list is then what to update.
+  It deliberately does **not** hide `stToolbar` itself: Streamlit renders the
+  collapsed-sidebar reopen arrow (`stExpandSidebarButton`) inside `stToolbar`,
+  so `display:none` there would trap a collapsed sidebar with no way back.
+  Everything else targets our own markup.
 - The base type rule deliberately avoids a broad `[class*="st-"]` selector:
   Streamlit's own icon spans carry `st-emotion-cache-*` classes, and our
   injected `<style>` wins on source order, so a blanket rule there overrode the

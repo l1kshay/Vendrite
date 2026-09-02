@@ -600,12 +600,18 @@ def inject_login_css() -> None:
 # update. Everything outside this block targets our own markup.
 #
 #   stElementToolbar   per-element hover toolbar (fullscreen / download)
-#   stToolbar          top-right app toolbar — on Community Cloud this is
-#                      where the host injects Share / GitHub / edit for the
-#                      app owner (a plain visitor never sees those)
+#   stToolbarActions   the host's Share / GitHub / edit cluster (Community
+#                      Cloud injects these for the app owner; a plain viewer
+#                      never sees them)
 #   stStatusWidget     bottom-right "Manage app" / running-status pill
 #   stMainMenu         the ⋮ hamburger menu
 #   stAppDeployButton  the "Deploy" button shown to the owner in local/dev
+#
+# NB: we deliberately do NOT hide [data-testid="stToolbar"] itself. Streamlit
+# renders the sidebar's reopen arrow (stExpandSidebarButton) *inside* stToolbar,
+# so `display:none` on the toolbar leaves a collapsed sidebar with no way back.
+# Hiding the toolbar's action children instead keeps that arrow alive. (Verified
+# with headless Chrome: expand-arrow ancestor chain runs through stToolbar.)
 #
 # What this CANNOT reach: the slide-up "Manage app" console itself, the
 # Streamlit Cloud account bar, and the *.streamlit.app browser chrome — those
@@ -616,7 +622,7 @@ def inject_login_css() -> None:
 _TOOLBAR_SELECTOR = '[data-testid="stElementToolbar"]'
 _CHROME_SELECTORS = ", ".join([
     _TOOLBAR_SELECTOR,
-    '[data-testid="stToolbar"]',
+    '[data-testid="stToolbarActions"]',
     '[data-testid="stStatusWidget"]',
     '[data-testid="stMainMenu"]',
     '[data-testid="stAppDeployButton"]',
