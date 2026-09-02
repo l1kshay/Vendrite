@@ -284,10 +284,32 @@ _CSS = f"""
 .vd-kpi-delta.down, .vd-kpi-delta.down .vd-icon {{ color: var(--error); }}
 
 /* ---- base type ------------------------------------------------------- */
-html, body, [class*="st-"], .stMarkdown, button, input, textarea, select {{
+/* Do NOT add a broad [class*="st-"] selector here. Streamlit's own icon
+   spans carry st-emotion-cache-* classes, and this <style> is injected
+   after Streamlit's stylesheet, so a blanket [class*="st-"] font-family
+   beats (same specificity, later source order) the emotion rule that makes
+   Material Symbols ligatures render — the icon *name* then shows as raw
+   text (sidebar collapse, expander chevrons, the password show/hide eye).
+   font-family inherits, so setting it on the app root is enough. */
+html, body, .stApp, .stMarkdown, button, input, textarea, select {{
   font-family: {FONT_STACK};
 }}
 .stApp {{ background: var(--bg-base); }}
+
+/* Re-assert the ligature icon font on Streamlit's own icon elements, so no
+   rule here (nor a future one) can degrade native chrome icons — sidebar
+   collapse, expander chevrons, password show/hide, widget `icon=` glyphs —
+   to their literal text names. Streamlit bundles this face locally, so this
+   does not depend on the Google Fonts @import above. */
+span[data-testid="stIconMaterial"],
+span.material-icons, span.material-icons-outlined,
+span.material-icons-rounded, span.material-icons-sharp {{
+  font-family: 'Material Symbols Rounded' !important;
+  font-weight: normal !important;
+  font-style: normal !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}}
 .block-container {{ padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1400px; }}
 
 h1, h2, h3 {{ color: var(--text-primary); letter-spacing: -0.015em; line-height: 1.3; }}
