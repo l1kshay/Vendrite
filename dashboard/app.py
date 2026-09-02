@@ -7,11 +7,19 @@ ingestion / transformation / RFM / CLV / forecasting logic lives here.
 
 Layout
 ------
-This file is the entry script: it configures the page, runs the login gate
-once, then hands off to ``st.navigation``. Each page is a ``render()`` function
-in ``dashboard/views/`` -- data access is centralised in ``dashboard/data.py``,
-pure reshaping in ``dashboard/transforms.py``, and colours / formatting in
-``dashboard/theme.py``.
+This file is the entry script / router. Every run, in order:
+
+1. ``authenticate()`` — mount the cookie, decide if the user is signed in.
+2. If not: render the login card, then a **hidden** one-page ``st.navigation``
+   (this is what clears a sidebar nav left over on the browser from an earlier
+   authenticated run — see ``dashboard/auth`` for why), then stop.
+3. If signed in: logout control, Presentation-mode toggle, the real
+   ``st.navigation`` page tree, then ``.run()`` the selected page.
+
+Sidebar order (top → bottom): wordmark (CSS ``::before`` on the nav) · nav
+groups · Filters expander · Presentation-mode toggle · Log out. The last three
+are ordered by CSS (``.st-key-vd-*`` + flex ``order``) in ``theme.py`` because
+Streamlit always paints the nav first and user content in call order.
 
 Run:  streamlit run dashboard/app.py
 """
@@ -37,29 +45,45 @@ from dashboard.theme import inject_css, inject_mode_css
 
 inject_css()
 
-from dashboard.auth import require_login
+from dashboard.auth import authenticate, render_login_form, render_logout
 from dashboard.views import forecasting_view, overview, retention, segments
 
 
-# Streamlit executes this file top-to-bottom on every rerun, so the app body
-# runs at module scope (no __main__ guard -- that is the Streamlit convention).
-require_login()
-st.sidebar.markdown(
-    '<div class="vd-wordmark">Vendrite <small>analytics</small></div>',
-    unsafe_allow_html=True,
-)
+def _noop() -> None:  # placeholder page target for the logged-out state
+    return None
 
-# Presentation mode (default on): hides Plotly's modebar and Streamlit's
-# per-element fullscreen/download chrome so the dashboard reads as a finished
-# product. Turn it off to get the exploration tools back. The value lives in
-# session_state, so it holds while navigating between pages.
-st.sidebar.toggle(
-    "Presentation mode",
-    value=True,
-    key="presentation_mode",
-    help="On: a clean, demo-ready view. Off: Plotly's zoom/pan/download toolbar "
-         "and Streamlit's expand buttons come back for exploring the data.",
-)
+
+# Streamlit executes this file top-to-bottom on every rerun.
+if not authenticate():
+    render_login_form()
+    # a submit inside the form above may have just authenticated us
+    if st.session_state.get("authentication_status") is True:
+        st.rerun()
+    # A hidden nav still transmits a navigation message, which REPLACES any
+    # sidebar nav the browser is holding from a previous authenticated run.
+    # Without this call the logged-in nav stays on screen next to the login
+    # card until a manual refresh.
+    st.navigation(
+        [st.Page(_noop, title="Sign in", url_path="signin")],
+        position="hidden",
+    ).run()
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# authenticated
+# ---------------------------------------------------------------------------
+render_logout()  # sidebar; may st.rerun() on click -> next run is logged-out
+
+with st.sidebar.container(key="vd-presentation"):
+    st.toggle(
+        "Presentation mode",
+        value=True,
+        key="presentation_mode",
+        help="On: a clean, demo-ready view — chart toolbars, the app menu and "
+             "(on Streamlit Cloud) the Manage-app pill are hidden, and the "
+             "Filters panel starts collapsed. Off: everything comes back for "
+             "exploring the data.",
+    )
 inject_mode_css(st.session_state["presentation_mode"])
 
 # Every page callable is named ``render``; give each an explicit url_path so
