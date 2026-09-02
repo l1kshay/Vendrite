@@ -76,5 +76,12 @@ def require_login() -> str:
         authenticator.login(location="main")  # keeps the cookie component mounted
 
     authenticator.logout(location="sidebar")
+    if st.session_state.get("authentication_status") is not True:
+        # The logout button was just clicked. streamlit-authenticator clears the
+        # session here but does NOT trigger a rerun, so without this the script
+        # would fall through to `st.navigation()` in app.py and paint the full
+        # app chrome beside the login card. Rerun now: the next run takes the
+        # unauthenticated branch above and `st.stop()`s before any nav exists.
+        st.rerun()
     st.sidebar.caption(f"Signed in as {st.session_state.get('name')}")
     return st.session_state.get("username")
