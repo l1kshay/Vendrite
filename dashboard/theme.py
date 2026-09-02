@@ -398,26 +398,48 @@ a {{ color: var(--accent); }}
   border-bottom: 1px solid var(--border);
 }}
 
-/* ---- sidebar user content: order the chrome, pin the session block --- */
-/* Streamlit paints the nav first, then user content in call order (logout,
-   toggle, then the Filters expander from the page). Re-order to: Filters ->
-   Presentation toggle -> [gap] -> Log out, with Log out pinned to the very
-   bottom. Keyed via st.container / st.expander `key=` -> `.st-key-*`.
-   Streamlit has no native sidebar-footer slot, so the pin is a flex column
-   that fills the sidebar height + `margin-top: auto` on the last block; the
-   `min-height` is a fallback if the flex chain ever changes. Degradation on
-   a Streamlit rename: blocks render in call order, un-pinned. */
+/* ---- sidebar user content: order the chrome, pin Log out to bottom --- */
+/* Verified via headless Chrome (CDP getBoundingClientRect) against the real
+   1.62 DOM:
+     stSidebarUserContent  (flex column, fills height)
+       > div                        <-- display:BLOCK  (breaks the flex chain)
+         > [stVerticalBlock]        (flex column)
+           > [stLayoutWrapper] ...  (one per sidebar block; the flex items)
+               > [stVerticalBlock].st-key-vd-*     (st.container -> key here)
+             .st-key-vd-filters is on the stLayoutWrapper itself (st.expander).
+   So: (1) re-continue the flex chain through that BLOCK div and the inner
+   vertical block, then (2) order the stLayoutWrappers and give the Log out
+   one margin-top:auto. Degradation if a testid/class is renamed: the three
+   blocks fall back to call order, un-pinned — still all usable. */
 [data-testid="stSidebarContent"] {{ display: flex; flex-direction: column; height: 100%; }}
 [data-testid="stSidebarUserContent"] {{
-  display: flex; flex-direction: column; gap: .1rem;
-  flex: 1 1 auto; min-height: calc(100dvh - 19rem);
+  display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+  padding-bottom: 1rem;   /* Streamlit's default is 6rem — it would sit BELOW
+                             the pinned Log out block. */
 }}
+/* continue the flex chain through Streamlit's two intermediate wrappers so the
+   free vertical space reaches the block list where margin-top:auto lives */
+[data-testid="stSidebarUserContent"] > div {{
+  display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+}}
+[data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] {{
+  flex: 1 1 auto; min-height: 0;
+}}
+
+/* order the three chrome blocks and pin Log out to the bottom. `st.expander`
+   puts the key on the flex item (stLayoutWrapper); `st.container` puts it on
+   an inner block, so those two match via :has() on the wrapper (:has() is
+   Baseline since 2023 — fine for the browsers Streamlit Cloud supports). If it
+   ever fails the blocks just fall back to call order, un-pinned. */
 [data-testid="stSidebarUserContent"] .st-key-vd-filters {{ order: 1; }}
-[data-testid="stSidebarUserContent"] .st-key-vd-presentation {{ order: 2; padding: .35rem .15rem; }}
-[data-testid="stSidebarUserContent"] .st-key-vd-session {{
-  order: 3; margin-top: auto; padding-top: .8rem;
-  border-top: 1px solid var(--border);
+[data-testid="stSidebarUserContent"] [data-testid="stLayoutWrapper"]:has(> .st-key-vd-presentation) {{
+  order: 2;
 }}
+[data-testid="stSidebarUserContent"] [data-testid="stLayoutWrapper"]:has(> .st-key-vd-session) {{
+  order: 3; margin-top: auto;   /* eats the free space -> block sits at bottom */
+}}
+.st-key-vd-presentation {{ padding: .35rem .15rem; }}
+.st-key-vd-session {{ padding-top: .85rem; border-top: 1px solid var(--border); }}
 .st-key-vd-session [data-testid="stCaptionContainer"] {{ margin-top: .3rem; }}
 
 /* ---- sidebar Filters expander ------------------------------------- */

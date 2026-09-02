@@ -377,12 +377,16 @@ polished default shouldn't cost you the analysis tools.
 nav — a `st.sidebar.*` call would land *below* the nav) · nav groups · Filters
 expander · Presentation-mode toggle · *[spacer]* · Log out + "Signed in as …"
 pinned to the bottom. Streamlit paints the nav first and user content in call
-order, so the chrome blocks are re-ordered by CSS (`.st-key-vd-*` + flex
-`order`), and — since Streamlit has no native sidebar-footer slot — the session
-block is pinned with `margin-top: auto` on a `stSidebarUserContent` forced to
-fill the sidebar height (`flex: 1` + a `min-height` fallback). If a Streamlit
-change drops the `st-key-*` classes the blocks still render, in call order and
-un-pinned.
+order, so the chrome blocks are re-ordered with flex `order` on `.st-key-vd-*`
+(matched through Streamlit's wrapper with `:has()`), and — since Streamlit has
+no native sidebar-footer slot — the session block is pinned with `margin-top:
+auto`. Two things that made earlier attempts silently fail, both found by
+inspecting the live DOM with headless Chrome: Streamlit's intermediate wrappers
+between `stSidebarUserContent` and the block list break the flex chain (one is
+`display:block`), and `stSidebarUserContent` carries a **6rem `padding-bottom`**
+that the pinned block would otherwise sit below. The CSS re-continues the chain
+and trims that padding. If a Streamlit change drops the `st-key-*` classes the
+blocks still render, in call order and un-pinned.
 
 **Login screen** has no sidebar region at all: nothing writes to `st.sidebar`
 when unauthenticated, and `inject_login_css()` collapses `[data-testid=
