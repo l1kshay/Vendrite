@@ -363,23 +363,39 @@ or font.
 #### Presentation mode
 
 The sidebar has a **Presentation mode** toggle, **on by default**. On, it hides
-Plotly's floating modebar and Streamlit's per-element fullscreen/download chrome
-so the dashboard reads as a finished product rather than a dev tool. Off, the
-zoom/pan/download tools come back for anyone who wants to actually explore the
-data. The choice lives in `st.session_state`, so it holds while navigating
-between pages. It's a deliberate split between a *demo view* and an *exploration
-view* — the polished default shouldn't cost you the analysis tools.
+Plotly's floating modebar, Streamlit's per-element fullscreen/download chrome,
+and the app-level chrome (the top-right toolbar, the ⋮ menu, and — on Streamlit
+Community Cloud — the bottom-right "Manage app" pill) so the dashboard reads as
+a finished product rather than a dev tool. Off, the zoom/pan/download tools and
+the menus come back for anyone who wants to actually explore the data. The
+choice lives in `st.session_state`, so it holds while navigating between pages.
+It's a deliberate split between a *demo view* and an *exploration view* — the
+polished default shouldn't cost you the analysis tools.
+
+What the toggle **can't** reach: the slide-up "Manage app" console itself, the
+Streamlit Cloud account bar, and the `*.streamlit.app` browser chrome all live
+in the host page, outside the app iframe. With the status pill hidden a viewer
+has no button to open that console; an owner viewing their own deployment may
+still get a Cloud-level affordance regardless — view logged-out / incognito for
+the fully clean surface.
 
 **Streamlit limits, noted honestly (and in code):**
 
 - `st.dataframe` is a canvas grid, so CSS can't restyle its headers — large
   tables get the base-dark look + column config; the small summary tables use
   `st.table` (HTML) and are fully themed.
-- Hiding the per-element toolbar relies on `[data-testid="stElementToolbar"]`,
-  a Streamlit-internal id and the **only** framework selector in the stylesheet.
-  A future Streamlit release could rename it; that one line in `theme.py` is
-  what to update if the expand buttons reappear. Everything else targets our own
-  markup.
+- Presentation mode hides framework chrome by Streamlit-internal test ids —
+  `stElementToolbar`, `stToolbar`, `stStatusWidget`, `stMainMenu`,
+  `stAppDeployButton`. These are the **only** framework selectors in the
+  stylesheet (all in the one `_CHROME_SELECTORS` list in `theme.py`); a future
+  Streamlit release could rename any of them, and that list is then what to
+  update. Everything else targets our own markup.
+- The base type rule deliberately avoids a broad `[class*="st-"]` selector:
+  Streamlit's own icon spans carry `st-emotion-cache-*` classes, and our
+  injected `<style>` wins on source order, so a blanket rule there overrode the
+  Material Symbols ligature font and native icons (sidebar collapse, expander
+  chevrons, password reveal) rendered as their literal text names. `theme.py`
+  now re-asserts the icon font on Streamlit's icon elements.
 - Plotly has no declarative per-point **hover state** — there's no way to change
   a marker's size/opacity on hover without custom JS, which `st.plotly_chart`
   doesn't expose. Mark-level "hover feedback" is therefore the tooltip plus a

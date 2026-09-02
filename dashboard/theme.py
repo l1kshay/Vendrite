@@ -376,6 +376,20 @@ a {{ color: var(--accent); }}
 }}
 [data-testid="stSidebarNav"] a[aria-current="page"] span {{ color: var(--text-primary); }}
 
+/* ---- sidebar filters: keep multiselect chips inside the rail ------- */
+/* BaseWeb's tag container can lay chips out on one non-wrapping row, which
+   overflows the ~300px sidebar and drags the layout sideways. Force wrap and
+   cap each chip so long category names ellipsize instead of pushing width. */
+[data-testid="stSidebar"] [data-testid="stMultiSelect"] div[data-baseweb="select"] > div:first-child {{
+  flex-wrap: wrap; overflow: hidden;
+}}
+[data-testid="stSidebar"] [data-testid="stMultiSelect"] span[data-baseweb="tag"] {{
+  max-width: 100%;
+}}
+[data-testid="stSidebar"] [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {{
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}}
+
 /* ---- buttons ------------------------------------------------------- */
 .stButton > button, .stDownloadButton > button {{
   border-radius: 8px; border: 1px solid var(--border);
@@ -420,11 +434,28 @@ a {{ color: var(--accent); }}
 }}
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] button {{
   width: 100%; background: var(--accent); border-color: var(--accent);
-  color: var(--accent-ink); font-weight: 600;
+  font-weight: 600;
 }}
 [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover {{
   background: var(--accent-hover); border-color: var(--accent-hover);
 }}
+/* the label is a nested <p>, which the base `p {{ color: ... }}` rule paints
+   text-secondary — grey on gold reads as washed out (~1.9:1). Force the
+   dark ink (10.2:1) on the button and its markdown descendants. Applies to
+   every primary/submit button, not just login. */
+[data-testid="stForm"] [data-testid="stFormSubmitButton"] button,
+[data-testid="stForm"] [data-testid="stFormSubmitButton"] button p,
+.stButton > button[data-testid="stBaseButton-primary"],
+.stButton > button[data-testid="stBaseButton-primary"] p {{
+  color: var(--accent-ink) !important;
+}}
+/* both login inputs the same width regardless of the password reveal icon */
+[data-testid="stForm"] [data-baseweb="input"] {{ width: 100%; }}
+
+/* Streamlit's "Press Enter to submit form" / "Press Enter to apply" hint is
+   positioned absolutely inside the input's end slot, where it overlaps the
+   field. Enter still works without it — drop it for a clean surface. */
+[data-testid="InputInstructions"] {{ display: none !important; }}
 
 /* ---- radio / segmented controls as quiet pills --------------------- */
 [data-testid="stRadio"] label {{ color: var(--text-secondary); }}
@@ -459,16 +490,37 @@ def inject_css() -> None:
 # ===========================================================================
 # presentation mode — hide the dev-tool chrome that floats over charts
 # ===========================================================================
-# Streamlit renders its per-element hover toolbar (fullscreen / download /
-# search) into a container it owns. This selector is the one fragile piece of
-# the stylesheet: it is a Streamlit-internal test id, so a future release could
-# rename it. If the expand buttons reappear after a Streamlit upgrade, this is
-# the line to update — everything else here is our own markup.
+# These are all Streamlit-internal test ids — the fragile part of the
+# stylesheet. A future Streamlit release could rename any of them; if a piece
+# of chrome reappears after an upgrade, the matching line here is what to
+# update. Everything outside this block targets our own markup.
+#
+#   stElementToolbar   per-element hover toolbar (fullscreen / download)
+#   stToolbar          top-right app toolbar — on Community Cloud this is
+#                      where the host injects Share / GitHub / edit for the
+#                      app owner (a plain visitor never sees those)
+#   stStatusWidget     bottom-right "Manage app" / running-status pill
+#   stMainMenu         the ⋮ hamburger menu
+#   stAppDeployButton  the "Deploy" button shown to the owner in local/dev
+#
+# What this CANNOT reach: the slide-up "Manage app" console itself, the
+# Streamlit Cloud account bar, and the *.streamlit.app browser chrome — those
+# live in the host page, outside the app iframe. With stStatusWidget hidden a
+# viewer has no button to open that console; an owner viewing their own app
+# may still get a Cloud-level affordance regardless (accept it, or view
+# logged-out / incognito for the clean surface).
 _TOOLBAR_SELECTOR = '[data-testid="stElementToolbar"]'
+_CHROME_SELECTORS = ", ".join([
+    _TOOLBAR_SELECTOR,
+    '[data-testid="stToolbar"]',
+    '[data-testid="stStatusWidget"]',
+    '[data-testid="stMainMenu"]',
+    '[data-testid="stAppDeployButton"]',
+])
 
 _PRESENTATION_CSS = f"""
 <style>
-{_TOOLBAR_SELECTOR} {{ display: none !important; }}
+{_CHROME_SELECTORS} {{ display: none !important; }}
 </style>
 """
 
