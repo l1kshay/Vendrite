@@ -452,6 +452,25 @@ python -c "import bcrypt,getpass; print(bcrypt.hashpw(getpass.getpass('pw: ').en
 If the auth vars are missing the dashboard shows a configuration error and
 refuses to load any data.
 
+The login survives a browser refresh via the library's signed JWT cookie
+(`VENDRITE_AUTH_COOKIE_NAME`, signed with `VENDRITE_AUTH_COOKIE_KEY`, valid for
+`VENDRITE_AUTH_COOKIE_EXPIRY_DAYS`). One non-obvious constraint governs the
+whole entry script:
+
+> **Never call `st.rerun()` between a `streamlit-authenticator` call and the end
+> of the run.** The library writes *and* deletes that cookie through
+> `extra_streamlit_components`' `CookieManager`, which is a Streamlit
+> **component** — `st.rerun()` discards the run's pending deltas, so the
+> component never reaches the browser. The cookie then silently never gets
+> written (login dies on refresh) or never gets deleted (logout dies on
+> refresh — a stale cookie signs you back in).
+
+So `app.py` never reruns on a state change; it re-reads `authentication_status`
+after each auth call and *finishes the run on the correct branch* instead. The
+component's own round-trip supplies the follow-up rerun. `tests/test_dashboard_app.py`
+has an AST-based guard that fails if an `st.rerun()` reappears in `app.py` or
+`auth.py`.
+
 ---
 
 ## Automation & reporting

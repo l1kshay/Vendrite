@@ -54,12 +54,26 @@ def _noop() -> None:  # placeholder page target for the logged-out state
 
 
 # Streamlit executes this file top-to-bottom on every rerun.
-if not authenticate():
+#
+# NEVER call st.rerun() between a streamlit-authenticator call and the end of
+# the run. It writes AND deletes its re-auth cookie through
+# extra_streamlit_components' CookieManager, which is a Streamlit *component*:
+# a rerun discards the run's pending deltas, so the component never reaches the
+# browser and the cookie is silently never written (login doesn't survive a
+# refresh) or never deleted (logout doesn't survive a refresh). Every state
+# transition below therefore finishes the run on the correct branch instead.
+_authed = authenticate()
+
+if _authed:
+    render_logout()  # sidebar Log out; clears the session + queues the delete
+    _authed = st.session_state.get("authentication_status") is True
+
+if not _authed:
     inject_login_css()  # no sidebar region on the login screen
     render_login_form()
-    # a submit inside the form above may have just authenticated us
-    if st.session_state.get("authentication_status") is True:
-        st.rerun()
+    _authed = st.session_state.get("authentication_status") is True
+
+if not _authed:
     # A hidden nav still transmits a navigation message, which REPLACES any
     # sidebar nav the browser is holding from a previous authenticated run.
     # Without this call the logged-in nav stays on screen next to the login
@@ -73,7 +87,6 @@ if not authenticate():
 # ---------------------------------------------------------------------------
 # authenticated
 # ---------------------------------------------------------------------------
-render_logout()  # sidebar; may st.rerun() on click -> next run is logged-out
 
 with st.sidebar.container(key="vd-presentation"):
     st.toggle(

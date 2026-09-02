@@ -110,11 +110,43 @@ def test_logout_falls_back_to_the_bare_login_state(configured_auth, nav_spy):
 
     assert not at.exception
     assert at.session_state["authentication_status"] is None
-    # bare login screen: no nav, no sidebar chrome, no page title
-    assert at.sidebar.button == []
-    assert at.sidebar.toggle == []
+    # The logout run finishes on the logged-out branch *in the same run* — no
+    # st.rerun(), because that would discard the cookie-deletion component.
+    # So this run shows the login card, no page, and a hidden nav.
     assert at.title == []
+    assert at.sidebar.toggle == []                       # no Presentation mode
     assert [ti.label for ti in at.text_input] == ["Username", "Password"]
-    # and the final run still called navigation (hidden) rather than stopping
-    # before it — this is the regression guard
     assert nav_spy[-1]["kwargs"].get("position") == "hidden"
+    # The sidebar's Log out block was already emitted before the click was
+    # processed, so it is still in this run's element tree; inject_login_css()
+    # is what removes the whole sidebar region visually.
+    assert any(
+        'data-testid="stSidebar"' in m.value and "display: none" in m.value
+        for m in at.markdown
+    )
+
+
+def test_no_rerun_between_authenticator_calls_and_end_of_run(configured_auth):
+    """Regression guard for the cookie bug.
+
+    streamlit-authenticator writes and deletes its re-auth cookie through
+    extra_streamlit_components' CookieManager *component*. st.rerun() discards
+    a run's pending deltas, so a rerun anywhere after a login()/logout() call
+    means the component never reaches the browser: the cookie is never written
+    (login dies on refresh) or never deleted (logout dies on refresh).
+    """
+    import ast
+
+    def rerun_calls(path: Path) -> list[int]:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        return [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "rerun"
+        ]
+
+    for path in (Path(APP), Path(APP).parent / "auth.py"):
+        hits = rerun_calls(path)
+        assert not hits, f"{path.name} calls st.rerun() at line(s) {hits}"

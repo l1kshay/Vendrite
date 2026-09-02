@@ -103,18 +103,19 @@ def render_login_form() -> None:
             st.caption("Enter your credentials to continue.")
 
 
-def render_logout() -> str:
-    """Sidebar "Log out" button + "Signed in as …" caption. Returns the
-    username. Call only when authenticated.
+def render_logout() -> None:
+    """Sidebar "Log out" button + "Signed in as …" caption. Call only when
+    authenticated.
 
-    On click, ``streamlit-authenticator`` clears the session but does not
-    rerun, so we do — the next run takes the unauthenticated path and its
-    hidden ``st.navigation`` call clears the sidebar nav.
+    On click ``streamlit-authenticator`` clears the session and queues a cookie
+    *deletion* through the CookieManager component. Do NOT ``st.rerun()`` here:
+    that discards the run's pending deltas, the component never reaches the
+    browser, and the stale cookie would sign the user straight back in on the
+    next refresh. ``app.py`` re-reads the status after this call and finishes
+    the run on the logged-out path instead.
     """
     authenticator = st.session_state[_AUTHENTICATOR_KEY]
     with st.sidebar.container(key="vd-session"):
         authenticator.logout(location="main")
-        if st.session_state.get("authentication_status") is not True:
-            st.rerun()
-        st.caption(f"Signed in as {st.session_state.get('name')}")
-    return st.session_state.get("username")
+        if st.session_state.get("authentication_status") is True:
+            st.caption(f"Signed in as {st.session_state.get('name')}")
