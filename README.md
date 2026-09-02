@@ -4,23 +4,43 @@ E-commerce sales & customer analytics platform — an ETL pipeline, RFM customer
 segmentation, and short-term demand forecasting, surfaced through an interactive
 Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 
-> **Build status:** Core 5 phases + analytical-depth revamp complete — ETL →
-> PostgreSQL star schema, RFM segmentation, heuristic CLV, signup-month cohort
-> retention, two forecast models (linear regression + Holt-Winters) with a
-> holdout backtest, a four-page dark-themed Streamlit/Plotly dashboard behind a
-> credential login gate, scheduled GitHub Actions pipeline + templated run
-> report, and a 78-test pytest suite. All Neon-verified end to end.
->
-> **Analytical-depth revamp in progress:** Phase A added heuristic Customer
-> Lifetime Value (`analytics/clv.py`) and signup-month cohort retention
-> (`analytics/cohorts.py`); Phase B added a second forecasting model
-> (Holt-Winters) alongside the linear regression, with a holdout backtest —
-> each with its own tests. Phase C restructured the dashboard into a four-page
-> `st.navigation` app (Overview / Segments & CLV / Retention / Forecasting)
-> with a shared data/transforms/theme layer. Phase D applied a dark
-> developer-console visual design — token system in `dashboard/theme.py` +
-> `.streamlit/config.toml`, a validated Plotly dark template, card layout, and
-> a warm-gold accent. **Revamp complete.**
+**[▶ Live demo](https://vendrite-cpb2h62yhhjy52pzvoutbd.streamlit.app/)** — hosted
+on Streamlit Community Cloud. The app is behind a credential login gate, so you
+will need the demo username/password to get past the sign-in screen; the
+screenshots below show what's inside.
+
+> **Status:** feature-complete and Neon-verified end to end — ETL → PostgreSQL
+> star schema, RFM segmentation, heuristic CLV, signup-month cohort retention,
+> two forecast models (linear regression + Holt-Winters) with a holdout
+> backtest, a four-page dark-themed Streamlit/Plotly dashboard behind a login
+> gate, a scheduled GitHub Actions pipeline + templated run report, and a
+> 75-test pytest suite. See [Known limitations](#known-limitations).
+
+## Screenshots
+
+**Overview** — headline KPIs with period-over-period deltas, and a revenue trend
+with a switchable daily/weekly/monthly grain.
+
+![Overview page](docs/screenshots/02-overview.png)
+
+**Cohort retention** — signup-month cohorts as a triangular heatmap. Rows read
+left-to-right as one cohort decaying; columns read top-to-bottom as whether newer
+cohorts hold up better. Cell hover gives the raw `N of M customers`.
+
+![Cohort retention page](docs/screenshots/04-retention.png)
+
+**Forecasting** — both models over the same horizon against actuals, split by the
+gold "today" divider, with the holdout backtest that scored them below.
+
+![Forecasting page](docs/screenshots/05-forecasting.png)
+
+<details>
+<summary>Segments &amp; CLV, and the login gate</summary>
+
+![Segments and CLV page](docs/screenshots/03-segments.png)
+![Login screen](docs/screenshots/01-login.png)
+
+</details>
 
 ---
 
@@ -49,16 +69,30 @@ Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
                  │   dim_customer   dim_product   dim_date                    │
                  │              ╲       │       ╱                             │
                  │                 fact_sales                                 │
-                 │   customer_segments (Phase 2)   sales_forecast (Phase 2)   │
-                 │   etl_run_log  ◀── every pipeline run logs STARTED/SUCCESS/FAILED
-                 └───────────┬───────────────────────────────┬───────────────┘
-                             ▼ (read-only role)               ▼ (read-only role)
-                 ┌─────────────────────────┐     ┌───────────────────────────┐
-                 │ analytics/segmentation  │     │ dashboard/app.py          │
-                 │ analytics/forecasting   │     │  Streamlit + Plotly       │
-                 │  (Phase 2)              │     │  auth gate (Phase 5)      │
-                 └─────────────────────────┘     └───────────────────────────┘
+                 │   etl_run_log  ◀── every run logs STARTED/SUCCESS/FAILED   │
+                 └───────────┬───────────────────────────────────────────────┘
+                             ▼  write role (vendrite_etl)
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │ analytics/  — each module reads fact_sales and appends its own result    │
+   │   segmentation.py  RFM scoring + 6 labels  ─▶ analytics.customer_segments│
+   │   clv.py           heuristic CLV            ─▶ analytics.customer_clv    │
+   │   cohorts.py       signup-month retention   ─▶ analytics.cohort_retention│
+   │   forecasting.py   TWO models + backtest    ─▶ analytics.sales_forecast  │
+   │                    linreg-v1 · holtwinters-v1  analytics.forecast_backtest│
+   └─────────────────────────┬───────────────────────────────────────────────┘
+                             ▼  read-only role (vendrite_dashboard)
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │ dashboard/ — Streamlit + Plotly, four pages behind a login gate          │
+   │   app.py router → auth.py gate → st.navigation                          │
+   │     Overview  ·  Segments & CLV  ·  Retention  ·  Forecasting            │
+   │   data.py (cached SQL reads) · transforms.py (pure reshaping) ·          │
+   │   theme.py (every colour/font token + the Plotly dark template)          │
+   └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+The dashboard computes **nothing**. Every number it draws was written to the
+`analytics` schema by a pipeline run, so a page load is a `SELECT` and a reshape.
+That is what lets it connect as a role with `SELECT`-only rights.
 
 **Separation of concerns** — ingestion (`extract`), transformation (`clean`,
 pure/no-I/O), persistence (`load`, the only DB module), analytics (`analytics/`),
@@ -74,13 +108,14 @@ environment variables.
 | `etl/` | `generate_mock_data`, `extract`, `clean`, `load`, `run_etl` |
 | `sql/schema/` | numbered DDL + role setup (see `sql/schema/README.md`) |
 | `sql/queries/` | verification / analysis SQL |
-| `analytics/` | `segmentation.py`, `forecasting.py` (Phase 2); `clv.py`, `cohorts.py` (revamp Phase A) |
-| `dashboard/` | multi-page Streamlit app — `app.py` (entry), `auth.py`, `data.py`, `transforms.py`, `theme.py`, `views/` |
-| `reporting/` | `generate_report.py` + Jinja2 `templates/` — run-summary report (Phase 4) |
-| `reports/` | generated summary report artifacts, gitignored (Phase 4) |
+| `analytics/` | `segmentation.py` (RFM), `clv.py`, `cohorts.py`, `forecasting.py` (two models + backtest) |
+| `dashboard/` | four-page Streamlit app — `app.py` (entry/router), `auth.py`, `data.py`, `transforms.py`, `theme.py`, `views/{overview,segments,retention,forecasting_view}.py` |
+| `docs/screenshots/` | dashboard screenshots used by this README |
+| `reporting/` | `generate_report.py` + Jinja2 `templates/` — run-summary report |
+| `reports/` | generated summary report artifacts, gitignored |
 | `run_pipeline.py` | one-command orchestrator: ETL → segmentation → CLV → cohorts → forecast → report |
 | `config/settings.py` | central configuration, env-driven |
-| `tests/` | pytest suite — `test_clean.py`, `test_segmentation.py`, `test_forecasting.py`, `test_clv.py`, `test_cohorts.py`, `test_dashboard_transforms.py` |
+| `tests/` | 75-test pytest suite — `test_clean.py`, `test_segmentation.py`, `test_forecasting.py`, `test_clv.py`, `test_cohorts.py`, `test_dashboard_transforms.py`, `test_dashboard_app.py` (headless `AppTest` render + auth-flow guards) |
 | `.github/workflows/pipeline.yml` | scheduled ETL→analytics→report pipeline |
 | `.github/workflows/tests.yml` | run `pytest` on every push / PR |
 
@@ -119,11 +154,22 @@ Assumes a reachable PostgreSQL server and a database named `vendrite`
 ```bash
 createdb -h localhost -U postgres vendrite
 
-psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/01_schemas.sql
-psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/02_roles.sql
-psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/03_staging.sql
-psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f sql/schema/04_analytics.sql
+# apply every DDL file in order — 01 → 06
+for f in sql/schema/0*.sql; do
+  psql -h localhost -U postgres -d vendrite -v ON_ERROR_STOP=1 -f "$f"
+done
 ```
+
+The files are additive and must run in order:
+
+| File | Creates |
+| ---- | ------- |
+| `01_schemas.sql` | the `staging` and `analytics` schemas |
+| `02_roles.sql` | `vendrite_etl` (read/write) and `vendrite_dashboard` (read-only) |
+| `03_staging.sql` | `staging.raw_transactions` |
+| `04_analytics.sql` | star schema + `customer_segments`, `sales_forecast`, `etl_run_log` |
+| `05_clv_cohorts.sql` | `customer_clv`, `cohort_retention` |
+| `06_forecast_backtest.sql` | `forecast_backtest` |
 
 `02_roles.sql` creates the two roles with **placeholder passwords** — change
 them immediately and put the same values in `.env`:
@@ -139,6 +185,22 @@ ALTER ROLE vendrite_dashboard WITH PASSWORD '...';
 | `vendrite_dashboard` | **read-only on `analytics` only** | Streamlit dashboard |
 
 Full details and the pgAdmin path: [`sql/schema/README.md`](sql/schema/README.md).
+
+### 4. Populate and run
+
+```bash
+# generate mock data and run all six stages:
+# ETL → RFM → CLV → cohorts → forecasts + backtest → report
+python run_pipeline.py --generate
+
+# then launch the dashboard (login gate uses the VENDRITE_AUTH_* values in .env)
+streamlit run dashboard/app.py
+```
+
+No PostgreSQL to hand? `python -m etl.run_etl --offline --generate` runs
+generate → extract → clean and writes the star-schema frames to
+`data/processed/` as CSVs. The analytics modules and dashboard still need a
+database.
 
 ---
 
@@ -160,7 +222,7 @@ python -m etl.run_etl --offline --generate
 Individual stages are runnable too: `python -m etl.generate_mock_data`,
 `python -m etl.extract`.
 
-### Verifying Phase 1
+### Verifying the warehouse
 
 After a full run, check the warehouse directly (psql or pgAdmin):
 
@@ -295,7 +357,7 @@ only the `analytics` schema; it performs no ETL/analytics logic. Module layout:
 | `dashboard/auth.py` | the `streamlit-authenticator` login gate |
 | `dashboard/data.py` | **all** DB access — parameterised `text()`, `@st.cache_data` |
 | `dashboard/transforms.py` | pure reshaping (RFM×CLV quadrants, cohort matrix) — unit-tested |
-| `dashboard/theme.py` | palette / Plotly template / formatting (the seam for the Phase D design pass) |
+| `dashboard/theme.py` | every design token, the Plotly dark template, and the render helpers |
 | `dashboard/views/` | one `render()` per page |
 
 **Pages**
@@ -509,7 +571,8 @@ python run_pipeline.py --generate      # ETL → segmentation → CLV → cohort
 python run_pipeline.py --skip-report   # stop after analytics
 ```
 
-`run_pipeline.py` runs the four stages in order. Every stage writes
+`run_pipeline.py` runs six stages in order — ETL, RFM segmentation, CLV, cohort
+retention, forecasting (both models + backtest), report. Every stage writes
 `STARTED` then `SUCCESS`/`FAILED` rows to `analytics.etl_run_log`; any stage
 failure propagates, the process exits non-zero, and the FAILED row is already
 in the DB. The report stage is read-only.
@@ -588,7 +651,7 @@ file is produced by this repo; connect it to the same warehouse:
    `Orders = DISTINCTCOUNT(fact_sales[order_id])`,
    `Units = SUM(fact_sales[quantity])`,
    `AOV = DIVIDE([Revenue], [Orders])`.
-6. **Refresh:** schedule it to run after the GitHub Actions pipeline (Phase 4)
+6. **Refresh:** schedule it to run after the GitHub Actions pipeline
    so the report always trails a completed ETL run.
 
 ---
@@ -644,6 +707,49 @@ configured before deploying.
 The **ETL/analytics pipeline is not deployed with the dashboard** — it runs on
 the GitHub Actions schedule (or any cron host) with the write-enabled
 `vendrite_etl` role and populates the shared warehouse the dashboard reads.
+
+---
+
+## Known limitations
+
+Open items, stated plainly rather than papered over.
+
+**Refreshing the browser can drop you back to the login screen.** Signing in
+should persist across a reload via the signed JWT re-auth cookie, and on the
+deployed app it currently does not — you land back on the sign-in form even
+though the cookie is still sitting in the browser, unchanged. This is a known
+open item.
+
+The cause is identified: `extra_streamlit_components` (which
+`streamlit-authenticator` writes the cookie through) sets it **`SameSite=Strict`**
+and exposes no way to configure that. Strict makes the browser *store* the
+cookie but **withhold it from cross-site requests** — including the websocket
+handshake of an app served in an iframe — so the server never receives the token
+and the auth check correctly concludes "not signed in". A configurable policy is
+in place (`VENDRITE_AUTH_COOKIE_SAME_SITE`, default `lax`; set `none` for
+embedded deployments) and it verifies clean locally in every context, but it has
+**not yet been confirmed on the hosted app**, so treat refresh-persistence as
+unresolved there. Details and the measurement table:
+[Cookie SameSite policy](#cookie-samesite-policy--why-stay-signed-in-can-silently-fail).
+
+**Other things worth knowing:**
+
+- **The data is synthetic.** `etl/generate_mock_data.py` produces the source
+  CSV. The pipeline, schema and models are real; the numbers are not. Anything
+  the dashboard concludes about "customers" is a statement about generated data.
+- **CLV is a heuristic, not a probabilistic model.** `avg_order_value ×
+  annualised frequency × assumed lifespan × margin`. It is transparent and
+  explainable, but it is not BG/NBD or Gamma-Gamma, and it has no confidence
+  interval.
+- **Forecasts have no prediction intervals.** Both models emit point estimates
+  only. The holdout backtest gives MAE/RMSE/MAPE so you can see how wrong they
+  tend to be, which is a weaker guarantee than an interval.
+- **Single hard-coded user.** The login gate authenticates one set of
+  `VENDRITE_AUTH_*` credentials. There is no user store, no roles, no password
+  reset.
+- **`st.dataframe` can't be fully themed.** It renders to a canvas grid, so CSS
+  can't reach its headers; large tables keep Streamlit's base dark styling while
+  the small summary tables use `st.table` and are themed.
 
 ---
 
