@@ -17,22 +17,34 @@ from dashboard.theme import (
     kpi_card,
     money,
     plotly_config,
+    presentation_mode,
     section,
 )
 
 
 def _sidebar_filters(sales: pd.DataFrame):
-    st.sidebar.header("Filters")
-    dmin, dmax = sales["order_date"].min().date(), sales["order_date"].max().date()
-    date_range = st.sidebar.date_input(
-        "Date range", value=(dmin, dmax), min_value=dmin, max_value=dmax
+    # Collapsed by default in presentation mode, open otherwise — but always
+    # visible and usable. key= drives the `.st-key-vd-filters` ordering hook
+    # in theme.py; the chevron is Streamlit's own Material icon.
+    exp = st.sidebar.expander(
+        "Filters", expanded=not presentation_mode(),
+        icon=":material/tune:", key="vd-filters",
     )
-    start, end = date_range if isinstance(date_range, tuple) and len(date_range) == 2 else (dmin, dmax)
+    with exp:
+        dmin, dmax = sales["order_date"].min().date(), sales["order_date"].max().date()
+        date_range = st.date_input(
+            "Date range", value=(dmin, dmax), min_value=dmin, max_value=dmax
+        )
+        start, end = (
+            date_range
+            if isinstance(date_range, tuple) and len(date_range) == 2
+            else (dmin, dmax)
+        )
 
-    cats = sorted(sales["category"].dropna().unique())
-    regs = sorted(sales["region"].dropna().unique())
-    pick_cats = st.sidebar.multiselect("Category", cats, default=cats)
-    pick_regs = st.sidebar.multiselect("Region", regs, default=regs)
+        cats = sorted(sales["category"].dropna().unique())
+        regs = sorted(sales["region"].dropna().unique())
+        pick_cats = st.multiselect("Category", cats, default=cats)
+        pick_regs = st.multiselect("Region", regs, default=regs)
     return start, end, cats, regs, pick_cats, pick_regs
 
 

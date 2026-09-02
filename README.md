@@ -365,12 +365,21 @@ or font.
 The sidebar has a **Presentation mode** toggle, **on by default**. On, it hides
 Plotly's floating modebar, Streamlit's per-element fullscreen/download chrome,
 and the app-level chrome (the top-right toolbar, the ⋮ menu, and — on Streamlit
-Community Cloud — the bottom-right "Manage app" pill) so the dashboard reads as
-a finished product rather than a dev tool. Off, the zoom/pan/download tools and
-the menus come back for anyone who wants to actually explore the data. The
+Community Cloud — the bottom-right "Manage app" pill), and the **Filters** panel
+starts collapsed. Off, the zoom/pan/download tools and the menus come back and
+Filters starts open. The Filters expander itself is always visible and usable in
+both modes — presentation mode only changes its default collapsed state. The
 choice lives in `st.session_state`, so it holds while navigating between pages.
 It's a deliberate split between a *demo view* and an *exploration view* — the
 polished default shouldn't cost you the analysis tools.
+
+**Sidebar order** (top → bottom): the Vendrite wordmark (a CSS `::before` on the
+nav — a `st.sidebar.*` call would land *below* the nav) · nav groups · Filters
+expander · Presentation-mode toggle · Log out + "Signed in as …". Streamlit
+always paints the nav first and user content in call order, so the last three
+are re-ordered by CSS (`.st-key-vd-*` + flex `order` in `theme.py`); if a
+Streamlit change drops the `st-key-*` classes the blocks still all render, just
+in call order.
 
 What the toggle **can't** reach: the slide-up "Manage app" console itself, the
 Streamlit Cloud account bar, and the `*.streamlit.app` browser chrome all live
@@ -400,6 +409,14 @@ the fully clean surface.
   a marker's size/opacity on hover without custom JS, which `st.plotly_chart`
   doesn't expose. Mark-level "hover feedback" is therefore the tooltip plus a
   slightly recessive base opacity, not a mark transform.
+- The sidebar wordmark rides a `::before` on `[data-testid="stSidebarNav"]` and
+  the chrome ordering rides `.st-key-vd-*` — both Streamlit-internal. Worst case
+  on a rename: no wordmark / call-order sidebar. Cosmetic, not broken.
+- `st.navigation` transmits the sidebar nav to the browser only on runs where
+  it's called, and the browser keeps the last one. So the entry script calls it
+  on **every** run — a hidden one-page nav when logged out — to clear a nav left
+  over from an authenticated run. This is why the auth gate reports state
+  instead of `st.stop()`-ing before navigation is built.
 
 ### Login gate
 

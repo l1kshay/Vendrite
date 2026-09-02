@@ -310,10 +310,15 @@ span.material-icons-rounded, span.material-icons-sharp {{
   letter-spacing: normal !important;
   text-transform: none !important;
 }}
-.block-container {{ padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1400px; }}
+/* content starts near the top of the viewport — Streamlit's default leaves a
+   big gap above the page title. The login card sets its own top margin
+   (.vd-login-head) so it is unaffected. */
+.block-container, [data-testid="stMainBlockContainer"] {{
+  padding-top: 1rem; padding-bottom: 3rem; max-width: 1400px;
+}}
 
 h1, h2, h3 {{ color: var(--text-primary); letter-spacing: -0.015em; line-height: 1.3; }}
-h1 {{ font-size: 1.75rem; font-weight: 600; margin-bottom: .1rem; }}
+h1 {{ font-size: 1.75rem; font-weight: 600; margin: 0 0 .1rem; }}
 h2 {{ font-size: 1.15rem; font-weight: 600; }}
 h3 {{ font-size: .95rem; font-weight: 600; }}
 [data-testid="stCaptionContainer"], .stCaption, small {{
@@ -376,15 +381,55 @@ a {{ color: var(--accent); }}
 }}
 [data-testid="stSidebarNav"] a[aria-current="page"] span {{ color: var(--text-primary); }}
 
-/* ---- sidebar filters: keep multiselect chips inside the rail ------- */
-/* BaseWeb's tag container can lay chips out on one non-wrapping row, which
-   overflows the ~300px sidebar and drags the layout sideways. Force wrap and
-   cap each chip so long category names ellipsize instead of pushing width. */
+/* ---- Vendrite wordmark: top-left of the sidebar, above the nav ------ */
+/* Rendered as a ::before on the nav (the topmost element Streamlit puts in
+   the sidebar) rather than an st.sidebar.* call, which would land BELOW the
+   nav. Pseudo-elements get the page font, so this is real Inter, not an
+   isolated <img>. Diamond + name share the muted text tone — the gold
+   diamond stays on the login screen where the brand entry point is. */
+[data-testid="stSidebarNav"]::before {{
+  content: "\\25C6\\00a0\\00a0Vendrite";
+  display: block;
+  font-family: {FONT_STACK};
+  font-size: 1.1rem; font-weight: 650; letter-spacing: -0.01em;
+  color: var(--text-secondary);
+  padding: .15rem .15rem .8rem;
+  margin-bottom: .55rem;
+  border-bottom: 1px solid var(--border);
+}}
+
+/* ---- sidebar user content: order the three chrome blocks ----------- */
+/* Streamlit always paints the nav first, then user content in call order
+   (logout, toggle, then the Filters expander from the page). Re-order them
+   to: Filters -> Presentation toggle -> Log out. Keyed via st.container /
+   st.expander `key=` -> `.st-key-*`. If a Streamlit change drops these
+   classes the blocks still all render, just in call order. */
+[data-testid="stSidebarUserContent"] {{ display: flex; flex-direction: column; gap: .1rem; }}
+[data-testid="stSidebarUserContent"] .st-key-vd-filters {{ order: 1; }}
+[data-testid="stSidebarUserContent"] .st-key-vd-presentation {{ order: 2; padding: .35rem .15rem; }}
+[data-testid="stSidebarUserContent"] .st-key-vd-session {{
+  order: 3; margin-top: .6rem; padding-top: .7rem; border-top: 1px solid var(--border);
+}}
+.st-key-vd-session [data-testid="stCaptionContainer"] {{ margin-top: .3rem; }}
+
+/* ---- sidebar Filters expander ------------------------------------- */
+[data-testid="stSidebar"] [data-testid="stExpander"] details {{
+  background: var(--bg-base); border-color: var(--border);
+}}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
+  font-size: .8rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-muted);
+}}
+
+/* ---- keep multiselect chips inside the rail ----------------------- */
+/* BaseWeb can lay chips on one non-wrapping row that overflows the ~300px
+   sidebar and drags the layout sideways. Force wrap; cap each chip so long
+   category names ellipsize instead of pushing width. */
 [data-testid="stSidebar"] [data-testid="stMultiSelect"] div[data-baseweb="select"] > div:first-child {{
-  flex-wrap: wrap; overflow: hidden;
+  flex-wrap: wrap; max-width: 100%; overflow: hidden;
 }}
 [data-testid="stSidebar"] [data-testid="stMultiSelect"] span[data-baseweb="tag"] {{
-  max-width: 100%;
+  max-width: 100%; overflow: hidden;
 }}
 [data-testid="stSidebar"] [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {{
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -473,7 +518,9 @@ a {{ color: var(--accent); }}
 }}
 
 /* ---- login card --------------------------------------------------- */
-.vd-login-head {{ text-align: center; margin: 2.5rem 0 .35rem; }}
+/* own top margin so the tighter .block-container padding above does not
+   pull the card up against the viewport edge */
+.vd-login-head {{ text-align: center; margin: 3.75rem 0 .35rem; }}
 .vd-login-head .vd-wordmark {{ justify-content: center; font-size: 1.5rem; }}
 .vd-login-head .vd-wordmark::before {{ font-size: 1.2rem; }}
 .vd-login-sub {{ text-align: center; color: var(--text-muted); font-size: .82rem; margin-bottom: 1.2rem; }}
