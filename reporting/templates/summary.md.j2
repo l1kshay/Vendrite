@@ -1,0 +1,80 @@
+# Vendrite — pipeline run summary
+
+_Generated {{ generated_at }}_
+
+## Warehouse
+
+| Metric | Value |
+| --- | --- |
+| Staging rows | {{ db.staging_rows | num }} |
+| Fact rows (`fact_sales`) | {{ db.fact_rows | num }} |
+| Customers | {{ db.customers | num }} |
+| Products | {{ db.products | num }} |
+| Sales date span | {{ db.first_sale }} → {{ db.last_sale }} |
+
+## Sales KPIs (all time)
+
+| Metric | Value |
+| --- | --- |
+| Revenue | {{ kpi.revenue | money }} |
+| Orders | {{ kpi.orders | num }} |
+| Units | {{ kpi.units | num }} |
+| Avg order value | {{ kpi.aov | money }} |
+| Revenue — last 30d | {{ kpi.rev_30d | money }} |
+| Revenue — prior 30d | {{ kpi.rev_prev_30d | money }} |
+| 30d change | {{ kpi.rev_change_pct | pct }} |
+
+## Top categories
+
+| Category | Revenue | Units |
+| --- | ---: | ---: |
+{% for r in top_categories -%}
+| {{ r.category }} | {{ r.revenue | money }} | {{ r.units | num }} |
+{% endfor %}
+
+## Top products
+
+| Product | Category | Revenue | Units |
+| --- | --- | ---: | ---: |
+{% for r in top_products -%}
+| {{ r.product }} | {{ r.category }} | {{ r.revenue | money }} | {{ r.units | num }} |
+{% endfor %}
+
+## Customer segments
+{% if segments.rows %}
+_Latest cohort: {{ segments.cohort_date }}_
+
+| Segment | Customers | Avg recency | Avg frequency | Avg monetary |
+| --- | ---: | ---: | ---: | ---: |
+{% for r in segments.rows -%}
+| {{ r.label }} | {{ r.customers | num }} | {{ r.avg_recency | num }} | {{ r.avg_frequency }} | {{ r.avg_monetary | money }} |
+{% endfor %}
+{% else %}
+_No segmentation rows yet._
+{% endif %}
+
+## Forecast
+{% if forecast %}
+- Model version: `{{ forecast.model_version }}`
+- Generated: {{ forecast.generated_date }}
+- Horizon: {{ forecast.n }} days ({{ forecast.first_date }} → {{ forecast.last_date }})
+- Total predicted revenue: {{ forecast.total | money }}
+- Avg predicted / day: {{ forecast.avg_daily | money }}
+{% else %}
+_No forecast rows yet._
+{% endif %}
+
+## Data quality
+
+| Stage | Quarantined rows |
+| --- | ---: |
+| Extract (malformed) | {{ quality.extract_quarantined if quality.extract_quarantined is not none else "n/a" }} |
+| Transform (invalid) | {{ quality.transform_quarantined if quality.transform_quarantined is not none else "n/a" }} |
+
+## Recent pipeline runs
+
+| run_id | timestamp | status | records | error |
+| ---: | --- | --- | ---: | --- |
+{% for r in runs -%}
+| {{ r.run_id }} | {{ r.run_timestamp }} | {{ r.status }} | {{ r.records_processed if r.records_processed is not none else "" }} | {{ (r.error_message or "") | truncate(60) }} |
+{% endfor %}

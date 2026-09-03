@@ -1,0 +1,100 @@
+name: Vendrite pipeline
+
+# Scheduled full pipeline: ETL -> segmentation -> forecast -> summary report.
+# Fails loudly (job goes red) on any stage error; every stage also records a
+# FAILED row in analytics.etl_run_log. The rendered report is uploaded as a
+# build artifact after each run.
+#
+# Target database: a managed Neon PostgreSQL project. The schema and the two
+# least-privilege roles are applied ONCE (out of band) via sql/schema/01-04.sql
+# -- this workflow deliberately does NOT run that DDL, because 03/04 start with
+# DROP TABLE and would wipe the append-only customer_segments / sales_forecast
+# history on every scheduled run.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"        # daily at 02:00 UTC
+  workflow_dispatch: {}          # manual "Run workflow" button
+
+concurrency:
+  group: vendrite-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    env:
+      # ---- non-secret connection config (config/settings.py reads these) ----
+      VENDRITE_DB_PORT: "5432"
+      VENDRITE_DB_NAME: vendrite
+      VENDRITE_DB_SSLMODE: require
+      VENDRITE_DB_CHANNEL_BINDING: require
+      VENDRITE_ETL_DB_USER: vendrite_etl
+      VENDRITE_DASHBOARD_DB_USER: vendrite_dashboard
+      VENDRITE_MOCK_SEED: "42"
+      # ---- secrets: Neon endpoint + role passwords -------------------------
+      VENDRITE_DB_HOST: ${{ secrets.VENDRITE_DB_HOST }}
+      VENDRITE_ETL_DB_PASSWORD: ${{ secrets.VENDRITE_ETL_DB_PASSWORD }}
+      VENDRITE_DASHBOARD_DB_PASSWORD: ${{ secrets.VENDRITE_DASHBOARD_DB_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check required secrets are present
+        run: |
+          missing=
+          for name in VENDRITE_DB_HOST VENDRITE_ETL_DB_PASSWORD VENDRITE_DASHBOARD_DB_PASSWORD; do
+            eval "val=\${$name}"
+            [ -n "$val" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing repository secret(s):$missing" >&2
+            exit 1
+          fi
+
+      - name: Run pipeline (ETL -> analytics -> report)
+        run: python run_pipeline.py --generate
+
+      - name: Upload run-summary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendrite-report-${{ github.run_number }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Failure diagnostics (etl_run_log tail)
+        if: failure()
+        run: |
+          python - <<'PY'
+          from sqlalchemy import create_engine, text
+          from config import settings
+
+          try:
+              engine = create_engine(settings.etl_database_url())
+              with engine.connect() as conn:
+                  rows = conn.execute(text(
+                      "SELECT run_id, run_timestamp, status, records_processed, "
+                      "left(error_message, 200) AS error "
+                      "FROM analytics.etl_run_log ORDER BY run_id DESC LIMIT 15"
+                  )).all()
+              for r in rows:
+                  print(r)
+          except Exception as exc:  # diagnostics must never mask the real failure
+              print(f"could not read etl_run_log: {exc}")
+          PY

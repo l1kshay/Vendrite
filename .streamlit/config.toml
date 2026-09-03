@@ -1,0 +1,11 @@
+# Streamlit's own theme — kept in lock-step with dashboard/theme.py so the
+# framework chrome (sidebar, widgets, menus) matches the custom CSS instead of
+# fighting it. If you change a value here, change the matching token in
+# dashboard/theme.py too.
+[theme]
+base = "dark"
+primaryColor = "#E8B23A"           # ACCENT — warm gold
+backgroundColor = "#0B0B0C"        # BG_BASE
+secondaryBackgroundColor = "#161618"  # BG_ELEVATED
+textColor = "#EDEDED"              # TEXT_PRIMARY
+font = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"

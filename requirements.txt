@@ -1,0 +1,44 @@
+# Vendrite — pinned dependencies
+# ---------------------------------------------------------------------------
+# Interpreter: Python 3.11+ (spec). These exact pins were resolved and
+# wheel-installed on CPython 3.14 (the build machine); they also install
+# cleanly on 3.11–3.13. If you must move to older pandas/numpy, keep the
+# tool set identical — only the versions may shift.
+#
+# Regenerate a fully-locked list with:  pip freeze > requirements.lock.txt
+# ---------------------------------------------------------------------------
+
+# --- ETL / data ---
+pandas==3.0.5
+numpy==2.5.2
+python-dateutil==2.9.0.post0
+
+# --- Database (SQLAlchemy connector + psycopg2 driver; no raw SQL strings) ---
+SQLAlchemy==2.0.52
+psycopg2-binary==2.9.12
+
+# --- Analytics / forecasting ---
+scikit-learn==1.9.0           # explainable linear-regression model (linreg-v1)
+statsmodels==0.15.0           # Holt-Winters exponential smoothing (holtwinters-v1)
+scipy==1.18.1                 # statsmodels + scikit-learn numerical backend
+patsy==1.0.3                  # statsmodels dependency
+formulaic==1.2.2              # statsmodels dependency
+interface-meta==2.0.1         # formulaic dependency
+wrapt==2.4.0                  # formulaic dependency
+
+# --- Dashboard ---
+streamlit==1.62.0
+plotly==7.0.0
+
+# --- Auth ---
+streamlit-authenticator==0.4.2
+bcrypt==5.0.0                 # password hashing (also a streamlit-authenticator dep)
+
+# --- Config / secrets ---
+python-dotenv==1.2.3
+
+# --- Reporting (Jinja2 templated summary) ---
+Jinja2==3.1.6
+
+# --- Testing ---
+pytest==9.1.1
