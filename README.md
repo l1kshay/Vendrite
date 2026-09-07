@@ -4,7 +4,7 @@ E-commerce sales & customer analytics platform — an ETL pipeline, RFM customer
 segmentation, and short-term demand forecasting, surfaced through an interactive
 Streamlit + Plotly dashboard, backed by a PostgreSQL star-schema warehouse.
 
-**[▶ Live demo](https://vendrite-cpb2h62yhhjy52pzvoutbd.streamlit.app/)** — hosted
+**[▶ Live demo](https://vendrite-wcq7mxhiroek9eadb7tiyn.streamlit.app/)** — hosted
 on Streamlit Community Cloud. The app is behind a credential login gate, so you
 will need the demo username/password to get past the sign-in screen; the
 screenshots below show what's inside.
